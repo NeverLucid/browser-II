@@ -70,6 +70,13 @@ namespace MyBrowserShell
 
         private readonly Color Accent = Color.FromArgb(0, 120, 212);
         private readonly Color AccentGreen = Color.FromArgb(36, 184, 133);
+
+        // Cached theme objects — rebuilt only on theme toggle, not per-draw
+        private TabTheme? _cachedTabTheme;
+        private ButtonTheme? _cachedButtonTheme;
+
+        // Autocomplete dirty-tracking — only rebuild when bookmark URLs actually change
+        private int _autoCompleteBookmarkHash = 0;
         private readonly Color DarkWindow = Color.FromArgb(18, 19, 23);
         private readonly Color DarkChrome = Color.FromArgb(28, 30, 36);
         private readonly Color DarkSurface = Color.FromArgb(39, 42, 50);
@@ -350,6 +357,7 @@ namespace MyBrowserShell
                 darkTheme = !darkTheme;
                 settings.DarkTheme = darkTheme;
                 settingsStore.Save(settings);
+                InvalidateThemeCache(); // bust cached TabTheme/ButtonTheme
                 ApplyShellTheme();
                 await ToggleDarkModeAsync(darkTheme);
             };
@@ -531,7 +539,7 @@ namespace MyBrowserShell
 
         private TabTheme CreateTabTheme()
         {
-            return new TabTheme(
+            return _cachedTabTheme ??= new TabTheme(
                 ChromeColor,
                 SurfaceColor,
                 RaisedColor,
@@ -540,6 +548,12 @@ namespace MyBrowserShell
                 MutedTextColor,
                 Accent,
                 AccentGreen);
+        }
+
+        private void InvalidateThemeCache()
+        {
+            _cachedTabTheme = null;
+            _cachedButtonTheme = null;
         }
 
         private void PaintBottomBorder(object? sender, PaintEventArgs e)
@@ -637,6 +651,27 @@ namespace MyBrowserShell
             page.Tag = tab;
             allPages.Add(page);
             tabMetadata[page] = initialMetadata ?? new TabMetadata();
+
+            // Eager suspension: once we have more than 5 tabs, immediately suspend
+            // the least-recently-used unpinned background tabs to free renderer memory.
+            const int EagerSuspendThreshold = 5;
+            if (allPages.Count > EagerSuspendThreshold)
+            {
+                var candidates = allPages
+                    .Where(p => p != page && p != tabControl1.SelectedTab && p.Tag is Tab t && !t.IsSuspended)
+                    .OrderBy(p => tabMetadata.TryGetValue(p, out var m) ? m.LastActiveUtc : DateTime.MaxValue)
+                    .Take(allPages.Count - EagerSuspendThreshold);
+
+                foreach (var old in candidates)
+                {
+                    if (old.Tag is Tab oldTab && tabMetadata.TryGetValue(old, out var oldMeta) && !oldMeta.IsPinned)
+                    {
+                        oldTab.Suspend();
+                        oldMeta.IsSuspended = true;
+                    }
+                }
+            }
+
             tab.DownloadRequested += OnDownloadRequested;
             tab.DownloadStarted += OnDownloadStarted;
             tab.PrivacyStatsChanged += (s, e) => UpdateShieldsButton();
@@ -1207,42 +1242,81 @@ namespace MyBrowserShell
                 .ToList();
 
             tabFlow.SuspendLayout();
-            tabFlow.Controls.Clear();
 
-            foreach (var page in visiblePages)
+            // ── Update-in-place: avoid destroying/recreating chips on every call ──
+            // Remove chips whose pages are no longer visible
+            var existingChips = tabFlow.Controls.OfType<TabChip>().ToList();
+            foreach (var chip in existingChips)
             {
+                if (!visiblePages.Contains(chip.Page))
+                {
+                    tabFlow.Controls.Remove(chip);
+                    chip.Dispose();
+                }
+            }
+
+            // Build lookup of currently alive chips
+            var chipMap = tabFlow.Controls.OfType<TabChip>().ToDictionary(c => c.Page);
+
+            for (int idx = 0; idx < visiblePages.Count; idx++)
+            {
+                var page = visiblePages[idx];
                 tabMetadata.TryGetValue(page, out var meta);
-                bool isPinned = meta?.IsPinned == true;
-                bool isMuted = meta?.IsMuted == true;
+                bool isPinned   = meta?.IsPinned   == true;
+                bool isMuted    = meta?.IsMuted     == true;
                 bool isSuspended = meta?.IsSuspended == true;
-                var chip = new TabChip(page)
+                bool isActive   = page == tabControl1.SelectedTab;
+
+                int desiredWidth = isPinned
+                    ? 96
+                    : Math.Min(218, Math.Max(142, TextRenderer.MeasureText(page.Text, Font).Width + 54));
+
+                if (chipMap.TryGetValue(page, out var existing))
                 {
-                    Active = page == tabControl1.SelectedTab,
-                    Pinned = isPinned,
-                    Muted = isMuted,
-                    Suspended = isSuspended,
-                    Theme = CreateTabTheme(),
-                    Width = isPinned
-                        ? 96
-                        : Math.Min(218, Math.Max(142, TextRenderer.MeasureText(page.Text, Font).Width + 54)),
-                    Height = 31,
-                    Margin = new Padding(0, 0, 7, 0)
-                };
-                chip.Selected += (s, e) => SelectPage(page);
-                chip.CloseRequested += (s, e) => CloseTab(page);
-                chip.MouseDown += (s, e) =>
+                    // Chip already exists — just update its properties
+                    existing.Active    = isActive;
+                    existing.Pinned    = isPinned;
+                    existing.Muted     = isMuted;
+                    existing.Suspended = isSuspended;
+                    existing.Theme     = CreateTabTheme();
+                    existing.Width     = desiredWidth;
+                    existing.Invalidate(); // repaint only if changed
+
+                    // Reorder if necessary
+                    if (tabFlow.Controls.IndexOf(existing) != idx)
+                        tabFlow.Controls.SetChildIndex(existing, idx);
+                }
+                else
                 {
-                    if (e.Button == MouseButtons.Left)
-                        draggingTabPage = page;
-                };
-                chip.MouseUp += (s, e) =>
-                {
-                    if (e.Button == MouseButtons.Left && draggingTabPage != null && draggingTabPage != page)
-                        MoveTab(draggingTabPage, page);
-                    draggingTabPage = null;
-                };
-                chip.ContextMenuStrip = CreateTabContextMenu(page);
-                tabFlow.Controls.Add(chip);
+                    // New chip needed
+                    var chip = new TabChip(page)
+                    {
+                        Active    = isActive,
+                        Pinned    = isPinned,
+                        Muted     = isMuted,
+                        Suspended = isSuspended,
+                        Theme     = CreateTabTheme(),
+                        Width     = desiredWidth,
+                        Height    = 31,
+                        Margin    = new Padding(0, 0, 7, 0),
+                    };
+                    chip.Selected        += (s, e) => SelectPage(page);
+                    chip.CloseRequested  += (s, e) => CloseTab(page);
+                    chip.MouseDown       += (s, e) =>
+                    {
+                        if (e.Button == MouseButtons.Left)
+                            draggingTabPage = page;
+                    };
+                    chip.MouseUp += (s, e) =>
+                    {
+                        if (e.Button == MouseButtons.Left && draggingTabPage != null && draggingTabPage != page)
+                            MoveTab(draggingTabPage, page);
+                        draggingTabPage = null;
+                    };
+                    chip.ContextMenuStrip = CreateTabContextMenu(page);
+                    tabFlow.Controls.Add(chip);
+                    tabFlow.Controls.SetChildIndex(chip, idx);
+                }
             }
 
             tabFlow.ResumeLayout();
@@ -1289,7 +1363,7 @@ namespace MyBrowserShell
                 if (!tabMetadata.TryGetValue(page, out var meta))
                     tabMetadata[page] = meta = new TabMetadata();
 
-                if (!meta.IsPinned && !meta.IsSuspended && now - meta.LastActiveUtc > TimeSpan.FromMinutes(20))
+                if (!meta.IsPinned && !meta.IsSuspended && now - meta.LastActiveUtc > TimeSpan.FromMinutes(5))
                 {
                     tab.Suspend();
                     meta.IsSuspended = true;
@@ -1404,12 +1478,23 @@ namespace MyBrowserShell
             if (addressBar == null)
                 return;
 
-            var source = new AutoCompleteStringCollection();
-            source.AddRange(bookmarks
+            // Only rebuild if the bookmark URL set has actually changed
+            var urls = bookmarks
                 .Select(b => b.Url)
                 .Where(u => !string.IsNullOrWhiteSpace(u))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray());
+                .ToArray();
+
+            int newHash = 0;
+            foreach (var u in urls)
+                newHash = HashCode.Combine(newHash, u.GetHashCode(StringComparison.OrdinalIgnoreCase));
+
+            if (newHash == _autoCompleteBookmarkHash)
+                return; // nothing changed — skip the allocation
+            _autoCompleteBookmarkHash = newHash;
+
+            var source = new AutoCompleteStringCollection();
+            source.AddRange(urls);
             addressBar.AutoCompleteCustomSource = source;
         }
 
@@ -2250,6 +2335,8 @@ namespace MyBrowserShell
         private readonly TabPage page;
         private bool hovered;
         private bool closeHovered;
+
+        public TabPage Page => page; // exposed for update-in-place lookup in RefreshTabStrip
 
         public TabChip(TabPage page)
         {
