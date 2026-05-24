@@ -678,7 +678,9 @@ namespace MyBrowserShell
                     if (!e.IsSuccess && ShouldShowLocalError(e.WebErrorStatus))
                     {
                         page.Text = "Page not found";
-                        tab.ShowNavigationError(e.WebErrorStatus, homeUrl);
+                        // Guard: only show error page if CoreWebView2 is still alive
+                        if (tab.WebView.CoreWebView2 != null && !tab.WebView.IsDisposed)
+                            tab.ShowNavigationError(e.WebErrorStatus, homeUrl);
                         UpdateAddressFromCurrentTab();
                         UpdateNavigationButtons();
                         RefreshTabStrip();
