@@ -1,0 +1,24 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "C#: MyBrowserShell",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build MyBrowserShell",
+            "program": "${workspaceFolder}/MyBrowserShell/bin/Debug/net8.0-windows/MyBrowserShell.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}/MyBrowserShell/bin/Debug/net8.0-windows",
+            "stopAtEntry": false
+        },
+        {
+            "name": "dotnet run (MyBrowserShell)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build MyBrowserShell",
+            "program": "${workspaceFolder}/MyBrowserShell/bin/Debug/net8.0-windows/MyBrowserShell.dll",
+            "cwd": "${workspaceFolder}/MyBrowserShell/bin/Debug/net8.0-windows",
+            "stopAtEntry": false
+        }
+    ]
+}
