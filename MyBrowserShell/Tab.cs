@@ -273,6 +273,10 @@ namespace MyBrowserShell
 
         public void ShowNavigationError(CoreWebView2WebErrorStatus status, string homeUrl)
         {
+            // Guard: WebView2 must be fully initialized before calling NavigateToString
+            if (WebView.CoreWebView2 == null || WebView.IsDisposed)
+                return;
+
             string attemptedUrl = System.Net.WebUtility.HtmlEncode(_lastUrl);
             string attemptedUrlLiteral = JsonSerializer.Serialize(_lastUrl);
             string homeUrlLiteral = JsonSerializer.Serialize(homeUrl);
