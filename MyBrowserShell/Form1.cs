@@ -356,7 +356,7 @@ namespace MyBrowserShell
             readerModeButton.Click += async (s, e) =>
             {
                 if (CurrentTab != null)
-                    await CurrentTab.ApplyReaderModeAsync();
+                    await CurrentTab.ApplyReaderModeAsync(isDark: darkTheme);
             };
             pipButton.Click += async (s, e) =>
             {
@@ -817,9 +817,10 @@ namespace MyBrowserShell
                     InvalidateThemeCache();
                     ApplyShellTheme();
                     _ = ToggleDarkModeAsync(darkTheme);
-                    // Navigate back to the new-tab page (which triggered the command)
-                    // and re-inject data so the page reflects the new theme instantly.
-                    CurrentTab?.Navigate(homeUrl);
+                    // Push updated data directly to the new-tab page without a reload flash.
+                    // The navigation to mybrowsershell:// has already been cancelled by WebView2
+                    // (unknown scheme), so the page is still visible — just re-inject the payload.
+                    _ = InjectNewTabDataAsync(CurrentTab);
                 }
                 else if (uri.Contains("downloads", StringComparison.OrdinalIgnoreCase))
                     ShowDownloadsMenu();
@@ -920,6 +921,10 @@ namespace MyBrowserShell
             if (!ctrl && !shift && !alt && key == Keys.F11)
                 return true;
 
+            // Zoom: Ctrl++, Ctrl+-, Ctrl+0
+            if (ctrl && !shift && !alt && key is Keys.Oemplus or Keys.OemMinus or Keys.D0)
+                return CurrentTab?.WebView.CoreWebView2 != null;
+
             return false;
         }
 
@@ -1019,7 +1024,30 @@ namespace MyBrowserShell
                     return;
 
                 SetTrueFullscreen(!isTrueFullscreen);
+                return;
             }
+
+            // Zoom
+            if (ctrl && !shift && !alt && key == Keys.Oemplus)  { AdjustZoom(+0.1); return; }
+            if (ctrl && !shift && !alt && key == Keys.OemMinus) { AdjustZoom(-0.1); return; }
+            if (ctrl && !shift && !alt && key == Keys.D0)       { ResetZoom();      return; }
+        }
+
+        private void AdjustZoom(double delta)
+        {
+            var core = CurrentTab?.WebView.CoreWebView2;
+            if (core == null) return;
+            double next = Math.Round(Math.Clamp(core.ZoomFactor + delta, 0.25, 5.0), 2);
+            core.ZoomFactor = next;
+            UpdateWindowTitle();
+        }
+
+        private void ResetZoom()
+        {
+            var core = CurrentTab?.WebView.CoreWebView2;
+            if (core == null) return;
+            core.ZoomFactor = 1.0;
+            UpdateWindowTitle();
         }
 
         private void SetTrueFullscreen(bool enabled)
@@ -1343,7 +1371,12 @@ namespace MyBrowserShell
                             MoveTab(draggingTabPage, page);
                         draggingTabPage = null;
                     };
-                    chip.ContextMenuStrip = CreateTabContextMenu(page);
+                    // Rebuild on each open so Pin/Mute labels stay current
+                    chip.MouseDown += (s, e) =>
+                    {
+                        if (e.Button == MouseButtons.Right)
+                            chip.ContextMenuStrip = CreateTabContextMenu(page);
+                    };
                     tabFlow.Controls.Add(chip);
                     tabFlow.Controls.SetChildIndex(chip, idx);
                 }
@@ -2045,9 +2078,12 @@ namespace MyBrowserShell
 
         private void UpdateWindowTitle()
         {
-            Text = shieldsEnabled
-                ? "MyBrowserShell — Shields on"
-                : "MyBrowserShell — Shields off";
+            var core = CurrentTab?.WebView.CoreWebView2;
+            string zoom = (core != null && Math.Abs(core.ZoomFactor - 1.0) > 0.01)
+                ? $" — {(int)Math.Round(core.ZoomFactor * 100)}%"
+                : "";
+            string shields = shieldsEnabled ? "Shields on" : "Shields off";
+            Text = $"MyBrowserShell — {shields}{zoom}";
         }
 
         private void UpdateShieldsButton()
@@ -2072,12 +2108,16 @@ namespace MyBrowserShell
             {
                 if (page.Tag is Tab tab)
                 {
+                    // Update WebResourceRequestedFilter registrations for this tab
+                    tab.UpdateShieldsFilters(shieldsEnabled);
+                    // Re-apply settings (user agent, profile-level tracking prevention, etc.)
                     await tab.ApplyShieldsAsync(shieldsEnabled);
+                    // Re-inject new-tab data (updates "Shields on/off" status text)
                     await InjectNewTabDataAsync(tab);
+                    // Reload every tab so removed/added filters take effect on in-page resources
+                    tab.WebView.CoreWebView2?.Reload();
                 }
             }
-
-            Reload();
         }
 
         private async Task ClearAllPrivateDataAsync()
