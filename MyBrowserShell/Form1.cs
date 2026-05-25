@@ -340,27 +340,19 @@ namespace MyBrowserShell
                 Padding = new Padding(0, 1, 0, 0)
             };
 
+            // themeButton is kept as a field for icon tracking but not added to the toolbar
+            // (theme is toggled from the new-tab page instead)
             themeButton = CreateIconButton(IconKind.Moon, "Toggle dark mode");
-            settingsButton = CreateIconButton(IconKind.Settings, "Settings");
-            bookmarkButton = CreateIconButton(IconKind.Star, "Save or remove bookmark");
-            bookmarksButton = CreateIconButton(IconKind.Bookmarks, "Bookmarks");
-            downloadsButton = CreateIconButton(IconKind.Download, "Downloads");
-            readerModeButton = CreateIconButton(IconKind.Reader, "Reader mode");
-            pipButton = CreateIconButton(IconKind.Pip, "Picture in picture");
-            saveSessionButton = CreateIconButton(IconKind.Save, "Save session (temp folder)");
-            loadSessionButton = CreateIconButton(IconKind.Open, "Load session");
-            shieldsButton = CreateIconButton(IconKind.Shield, "Privacy shields on");
-            clearDataButton = CreateIconButton(IconKind.Trash, "Clear private data");
+            settingsButton    = CreateIconButton(IconKind.Settings,  "Settings");
+            bookmarksButton   = CreateIconButton(IconKind.Bookmarks, "Bookmarks");
+            downloadsButton   = CreateIconButton(IconKind.Download,  "Downloads");
+            readerModeButton  = CreateIconButton(IconKind.Reader,    "Reader mode");
+            pipButton         = CreateIconButton(IconKind.Pip,       "Picture in picture");
+            saveSessionButton = CreateIconButton(IconKind.Save,      "Save session (temp folder)");
+            loadSessionButton = CreateIconButton(IconKind.Open,      "Load session");
+            shieldsButton     = CreateIconButton(IconKind.Shield,    "Privacy shields on");
+            clearDataButton   = CreateIconButton(IconKind.Trash,     "Clear private data");
 
-            themeButton.Click += async (s, e) =>
-            {
-                darkTheme = !darkTheme;
-                settings.DarkTheme = darkTheme;
-                settingsStore.Save(settings);
-                InvalidateThemeCache(); // bust cached TabTheme/ButtonTheme
-                ApplyShellTheme();
-                await ToggleDarkModeAsync(darkTheme);
-            };
             readerModeButton.Click += async (s, e) =>
             {
                 if (CurrentTab != null)
@@ -374,7 +366,6 @@ namespace MyBrowserShell
             saveSessionButton.Click += async (s, e) => await SaveSessionAsync();
             loadSessionButton.Click += async (s, e) => await LoadSessionAsync();
             clearDataButton.Click += async (s, e) => await ClearAllPrivateDataAsync();
-            bookmarkButton.Click += (s, e) => ToggleBookmarkForCurrentPage();
             bookmarksButton.Click += (s, e) => ShowBookmarksMenu();
             downloadsButton.Click += (s, e) => ShowDownloadsMenu();
             shieldsButton.Click += (s, e) => ShowPrivacyReportMenu();
@@ -388,16 +379,16 @@ namespace MyBrowserShell
             });
             // themeButton is intentionally omitted — theme is toggled from the new-tab page
 
-            // Star button lives inside addressContainer as a right-side overlay
+            // Star button lives inside addressContainer as a right-side overlay (like Chrome)
             bookmarkButton = new ChromeIconButton(IconKind.Star)
             {
-                Size    = new Size(30, 30),
-                Cursor  = Cursors.Hand,
-                TabStop = false,
-                Anchor  = AnchorStyles.Right | AnchorStyles.Top,
+                Size        = new Size(28, 28),
+                Cursor      = Cursors.Hand,
+                TabStop     = false,
+                Visible     = false,   // hidden until a real page loads (not new-tab)
             };
+            toolTip.SetToolTip(bookmarkButton, "Save bookmark");
             bookmarkButton.Click += (s, e) => ToggleBookmarkForCurrentPage();
-            // Position it; exact X is set in RepositionInlineBookmarkButton called on resize
             addressContainer.Controls.Add(bookmarkButton);
             addressContainer.Resize += (s, e) => RepositionInlineBookmarkButton();
             RepositionInlineBookmarkButton();
@@ -525,7 +516,8 @@ namespace MyBrowserShell
             findBox.ForeColor = TextColor;
             findStatusLabel.ForeColor = MutedTextColor;
 
-            themeButton.Icon = darkTheme ? IconKind.Moon : IconKind.Sun;
+            themeButton.Icon = darkTheme ? IconKind.Moon : IconKind.Sun; // tracks state, not displayed
+            bookmarkButton?.Invalidate(); // repaint inline star with updated theme colours
             UpdateShieldsButton();
             UpdateBookmarkButton();
 
@@ -1576,12 +1568,20 @@ namespace MyBrowserShell
                 return;
 
             string? url = CurrentTab?.GetCurrentUrl();
-            bool saved = !string.IsNullOrWhiteSpace(url) &&
-                bookmarks.Any(b => SameUrl(b.Url, url));
+
+            // Hide star on the new-tab page and other internal pages
+            bool isBookmarkable = !string.IsNullOrWhiteSpace(url)
+                && (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                ||  url.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
+
+            bookmarkButton.Visible = isBookmarkable;
+
+            if (!isBookmarkable)
+                return;
+
+            bool saved = bookmarks.Any(b => SameUrl(b.Url, url));
             bookmarkButton.Icon = saved ? IconKind.StarFilled : IconKind.Star;
-            toolTip.SetToolTip(bookmarkButton, saved
-                ? "Remove bookmark"
-                : "Save bookmark");
+            toolTip.SetToolTip(bookmarkButton, saved ? "Remove bookmark" : "Save bookmark");
             bookmarkButton.Invalidate();
         }
 
