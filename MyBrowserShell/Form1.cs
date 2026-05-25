@@ -312,7 +312,7 @@ namespace MyBrowserShell
             {
                 Dock = DockStyle.Fill,
                 Margin = new Padding(4, 0, 12, 0),
-                Padding = new Padding(34, 8, 16, 7)
+                Padding = new Padding(34, 8, 42, 7)  // right=42 reserves space for inline star button
             };
             addressContainer.Paint += PaintAddressContainer;
 
@@ -382,10 +382,25 @@ namespace MyBrowserShell
 
             actionPanel.Controls.AddRange(new Control[]
             {
-                settingsButton, themeButton, bookmarkButton, bookmarksButton, downloadsButton,
+                settingsButton, bookmarksButton, downloadsButton,
                 readerModeButton, pipButton, shieldsButton, clearDataButton,
                 saveSessionButton, loadSessionButton
             });
+            // themeButton is intentionally omitted — theme is toggled from the new-tab page
+
+            // Star button lives inside addressContainer as a right-side overlay
+            bookmarkButton = new ChromeIconButton(IconKind.Star)
+            {
+                Size    = new Size(30, 30),
+                Cursor  = Cursors.Hand,
+                TabStop = false,
+                Anchor  = AnchorStyles.Right | AnchorStyles.Top,
+            };
+            bookmarkButton.Click += (s, e) => ToggleBookmarkForCurrentPage();
+            // Position it; exact X is set in RepositionInlineBookmarkButton called on resize
+            addressContainer.Controls.Add(bookmarkButton);
+            addressContainer.Resize += (s, e) => RepositionInlineBookmarkButton();
+            RepositionInlineBookmarkButton();
 
             layout.Controls.Add(navPanel, 0, 0);
             layout.Controls.Add(addressContainer, 1, 0);
@@ -563,6 +578,17 @@ namespace MyBrowserShell
 
             using var border = new Pen(BorderColor);
             e.Graphics.DrawLine(border, 0, control.Height - 1, control.Width, control.Height - 1);
+        }
+
+        private void RepositionInlineBookmarkButton()
+        {
+            if (bookmarkButton == null || addressContainer == null)
+                return;
+            int h = addressContainer.ClientSize.Height;
+            int btnH = bookmarkButton.Height;
+            bookmarkButton.Location = new Point(
+                addressContainer.ClientSize.Width - bookmarkButton.Width - 6,
+                (h - btnH) / 2);
         }
 
         private void PaintAddressContainer(object? sender, PaintEventArgs e)
@@ -791,7 +817,19 @@ namespace MyBrowserShell
 
             BeginInvoke(new Action(() =>
             {
-                if (uri.Contains("downloads", StringComparison.OrdinalIgnoreCase))
+                if (uri.Contains("toggle-theme", StringComparison.OrdinalIgnoreCase))
+                {
+                    darkTheme = !darkTheme;
+                    settings.DarkTheme = darkTheme;
+                    settingsStore.Save(settings);
+                    InvalidateThemeCache();
+                    ApplyShellTheme();
+                    _ = ToggleDarkModeAsync(darkTheme);
+                    // Navigate back to the new-tab page (which triggered the command)
+                    // and re-inject data so the page reflects the new theme instantly.
+                    CurrentTab?.Navigate(homeUrl);
+                }
+                else if (uri.Contains("downloads", StringComparison.OrdinalIgnoreCase))
                     ShowDownloadsMenu();
                 else if (uri.Contains("settings", StringComparison.OrdinalIgnoreCase))
                     ShowSettingsMenu();
@@ -1732,8 +1770,9 @@ namespace MyBrowserShell
                     .OrderBy(b => b.Title)
                     .Select(b => new { title = b.Title, url = b.Url })
                     .ToArray(),
-                shields = shieldsEnabled ? "Shields on" : "Shields off",
-                searchUrl = settings.SearchUrl
+                shields    = shieldsEnabled ? "Shields on" : "Shields off",
+                searchUrl  = settings.SearchUrl,
+                darkTheme  = darkTheme,
             };
             string script = "window.MyBrowserShellNewTab && window.MyBrowserShellNewTab.applyData(" +
                 JsonSerializer.Serialize(payload) + ");";
