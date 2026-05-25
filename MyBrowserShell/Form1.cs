@@ -1826,8 +1826,63 @@ namespace MyBrowserShell
                     }
                 });
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Search engine: DuckDuckGo", null, (s, e) => SetSearchEngine("https://duckduckgo.com/?q="));
-            menu.Items.Add("Search engine: Bing", null, (s, e) => SetSearchEngine("https://www.bing.com/search?q="));
+            // ── Search engine submenu ────────────────────────────────────────
+            var searchSubmenu = new ToolStripMenuItem("Search engine");
+
+            var engines = new (string Name, string Url)[]
+            {
+                ("DuckDuckGo",  "https://duckduckgo.com/?q="),
+                ("Google",      "https://www.google.com/search?q="),
+                ("Bing",        "https://www.bing.com/search?q="),
+                ("Brave",       "https://search.brave.com/search?q="),
+                ("Ecosia",      "https://www.ecosia.org/search?q="),
+            };
+
+            string currentSearch = settings.SearchUrl ?? "";
+            bool matchedBuiltIn = false;
+
+            foreach (var (name, url) in engines)
+            {
+                bool isActive = currentSearch.Equals(url, StringComparison.OrdinalIgnoreCase);
+                if (isActive) matchedBuiltIn = true;
+                var item = new ToolStripMenuItem(name)
+                {
+                    Checked  = isActive,
+                    CheckOnClick = false,
+                };
+                string capturedUrl = url;
+                item.Click += (s, e) => SetSearchEngine(capturedUrl);
+                searchSubmenu.DropDownItems.Add(item);
+            }
+
+            searchSubmenu.DropDownItems.Add(new ToolStripSeparator());
+
+            // Custom engine entry
+            bool isCustom = !matchedBuiltIn && !string.IsNullOrWhiteSpace(currentSearch);
+            var customItem = new ToolStripMenuItem(isCustom ? $"Custom: {currentSearch}" : "Custom…")
+            {
+                Checked = isCustom,
+            };
+            customItem.Click += (s, e) =>
+            {
+                string initial = isCustom ? currentSearch : "https://kagi.com/search?q=";
+                string? result = ShowInputDialog(
+                    "Custom search engine",
+                    "Enter a search URL ending with the query parameter (e.g. https://kagi.com/search?q=)",
+                    initial);
+
+                if (string.IsNullOrWhiteSpace(result))
+                    return;
+
+                // Accept %s placeholder or a bare trailing URL — normalise to bare
+                string normalised = result.Contains("%s")
+                    ? result.Replace("%s", "")
+                    : result.TrimEnd();
+                SetSearchEngine(normalised);
+            };
+            searchSubmenu.DropDownItems.Add(customItem);
+
+            menu.Items.Add(searchSubmenu);
             menu.Items.Add("Use current page as home", null, (s, e) =>
             {
                 var url = CurrentTab?.GetCurrentUrl();
@@ -1848,10 +1903,88 @@ namespace MyBrowserShell
             menu.Show(settingsButton, new Point(0, settingsButton.Height));
         }
 
+        /// <summary>
+        /// Simple single-line input prompt — avoids a Microsoft.VisualBasic dependency.
+        /// Returns null/empty if the user cancels.
+        /// </summary>
+        private static string? ShowInputDialog(string title, string prompt, string initial = "")
+        {
+            var form = new Form
+            {
+                Text            = title,
+                Width           = 500,
+                Height          = 160,
+                StartPosition   = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MinimizeBox     = false,
+                MaximizeBox     = false,
+                BackColor       = Color.FromArgb(28, 30, 36),
+                ForeColor       = Color.FromArgb(240, 243, 246),
+            };
+
+            var label = new Label
+            {
+                Text      = prompt,
+                AutoSize  = false,
+                Width     = 460,
+                Height    = 32,
+                Location  = new Point(12, 10),
+                ForeColor = Color.FromArgb(161, 169, 181),
+                Font      = new Font("Segoe UI", 9f),
+            };
+
+            var textBox = new TextBox
+            {
+                Text      = initial,
+                Width     = 460,
+                Location  = new Point(12, 48),
+                BackColor = Color.FromArgb(39, 42, 50),
+                ForeColor = Color.FromArgb(240, 243, 246),
+                BorderStyle = BorderStyle.FixedSingle,
+                Font      = new Font("Segoe UI", 10f),
+            };
+            textBox.SelectAll();
+
+            var ok = new Button
+            {
+                Text         = "OK",
+                DialogResult = DialogResult.OK,
+                Width        = 80,
+                Height       = 28,
+                Location     = new Point(300, 82),
+                BackColor    = Color.FromArgb(0, 120, 212),
+                ForeColor    = Color.White,
+                FlatStyle    = FlatStyle.Flat,
+            };
+            ok.FlatAppearance.BorderSize = 0;
+
+            var cancel = new Button
+            {
+                Text         = "Cancel",
+                DialogResult = DialogResult.Cancel,
+                Width        = 80,
+                Height       = 28,
+                Location     = new Point(392, 82),
+                BackColor    = Color.FromArgb(52, 56, 66),
+                ForeColor    = Color.FromArgb(240, 243, 246),
+                FlatStyle    = FlatStyle.Flat,
+            };
+            cancel.FlatAppearance.BorderSize = 0;
+
+            form.Controls.AddRange(new Control[] { label, textBox, ok, cancel });
+            form.AcceptButton = ok;
+            form.CancelButton = cancel;
+            form.ActiveControl = textBox;
+
+            return form.ShowDialog() == DialogResult.OK ? textBox.Text.Trim() : null;
+        }
+
         private void SetSearchEngine(string searchUrl)
         {
             settings.SearchUrl = searchUrl;
             settingsStore.Save(settings);
+            // Refresh the new-tab page so its search box picks up the new engine
+            _ = InjectNewTabDataAsync(CurrentTab);
         }
 
         private void ChooseDownloadFolder()
