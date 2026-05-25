@@ -21,11 +21,23 @@ namespace MyBrowserShell
             CoreWebView2WebResourceContext.Other
         };
 
-        private static readonly Lazy<IReadOnlyList<string>> BlockableResourcePatternsLazy =
-            new(BuildBlockableResourcePatterns);
+        // Always-active tracker patterns (applied regardless of shields state)
+        private static readonly Lazy<IReadOnlyList<string>> TrackerPatternsLazy =
+            new(BuildTrackerPatterns);
 
+        // Shields-only patterns (only registered when shields are enabled)
+        private static readonly Lazy<IReadOnlyList<string>> ShieldsPatternsLazy =
+            new(BuildShieldsPatterns);
+
+        /// <summary>Patterns that are always registered (core tracker list).</summary>
+        public static IReadOnlyList<string> TrackerPatterns => TrackerPatternsLazy.Value;
+
+        /// <summary>Patterns only registered when Shields are enabled (ads, telemetry, etc).</summary>
+        public static IReadOnlyList<string> ShieldsOnlyPatterns => ShieldsPatternsLazy.Value;
+
+        // Keep the combined list for backwards compat (used nowhere else)
         public static IReadOnlyList<string> BlockableResourcePatterns =>
-            BlockableResourcePatternsLazy.Value;
+            TrackerPatternsLazy.Value;
 
         internal const string DocumentPrivacyScript = @"
 (function() {
@@ -209,31 +221,31 @@ namespace MyBrowserShell
         public static bool ShouldBlockRedirect(int redirectCount) =>
             ShieldsEnabled && redirectCount > 1;
 
-        private static IReadOnlyList<string> BuildBlockableResourcePatterns()
+        private static IReadOnlyList<string> BuildTrackerPatterns()
         {
             var patterns = new List<string>();
-
             foreach (var host in DefaultBlockedTrackerHosts)
             {
                 patterns.Add("*://" + host + "/*");
                 patterns.Add("*://*." + host + "/*");
             }
+            return patterns;
+        }
 
+        private static IReadOnlyList<string> BuildShieldsPatterns()
+        {
+            var patterns = new List<string>();
             foreach (var host in ShieldBlockedHosts)
             {
                 patterns.Add("*://" + host + "/*");
                 patterns.Add("*://*." + host + "/*");
             }
-
             foreach (var token in ShieldBlockedHostTokens)
                 patterns.Add("*://*" + token + "*/*");
-
             foreach (var token in ShieldBlockedLeadingHostTokens)
                 patterns.Add("*://" + token + "*/*");
-
             foreach (var token in ShieldBlockedPathTokens)
                 patterns.Add("*://*" + token + "*");
-
             return patterns;
         }
 
@@ -295,9 +307,13 @@ namespace MyBrowserShell
             settings.IsPasswordAutosaveEnabled = false;
             settings.IsReputationCheckingRequired = !shields;
             settings.IsStatusBarEnabled = false;
-            settings.IsWebMessageEnabled = !shields;
+            // IsWebMessageEnabled must stay true — it is the JS<->host bridge used by the new-tab
+            // page to receive bookmark/theme data via ExecuteScriptAsync. It is not a privacy surface.
+            settings.IsWebMessageEnabled = true;
             settings.AreDevToolsEnabled = false;
-            settings.AreBrowserAcceleratorKeysEnabled = !shields;
+            // AreBrowserAcceleratorKeysEnabled = false would disable Ctrl+C/V/A/Z which are
+            // standard editing shortcuts — always keep them enabled.
+            settings.AreBrowserAcceleratorKeysEnabled = true;
             settings.IsSwipeNavigationEnabled = !shields;
             settings.IsPinchZoomEnabled = true;
             settings.IsZoomControlEnabled = false;
