@@ -110,11 +110,17 @@ namespace MyBrowserShell
                 return;
 
             var core = WebView.CoreWebView2;
+
+            // Always register core tracker patterns
             foreach (var context in PrivacyPolicy.BlockableResourceContexts)
-            {
-                foreach (var pattern in PrivacyPolicy.BlockableResourcePatterns)
+                foreach (var pattern in PrivacyPolicy.TrackerPatterns)
                     TryAddWebResourceRequestedFilter(core, pattern, context);
-            }
+
+            // Register shields-only patterns only when shields are currently enabled
+            if (PrivacyPolicy.ShieldsEnabled)
+                foreach (var context in PrivacyPolicy.BlockableResourceContexts)
+                    foreach (var pattern in PrivacyPolicy.ShieldsOnlyPatterns)
+                        TryAddWebResourceRequestedFilter(core, pattern, context);
 
             core.WebResourceRequested += OnWebResourceRequested;
             core.PermissionRequested += OnPermissionRequested;
@@ -124,6 +130,31 @@ namespace MyBrowserShell
             core.NavigationCompleted += OnCoreNavigationCompleted;
 
             _privacyHandlersAttached = true;
+        }
+
+        /// <summary>
+        /// Adds or removes the shields-only resource filters when shields are toggled at runtime.
+        /// Core tracker filters are never removed.
+        /// </summary>
+        public void UpdateShieldsFilters(bool shieldsEnabled)
+        {
+            var core = WebView?.CoreWebView2;
+            if (core == null) return;
+
+            foreach (var context in PrivacyPolicy.BlockableResourceContexts)
+            {
+                foreach (var pattern in PrivacyPolicy.ShieldsOnlyPatterns)
+                {
+                    try
+                    {
+                        if (shieldsEnabled)
+                            core.AddWebResourceRequestedFilter(pattern, context);
+                        else
+                            core.RemoveWebResourceRequestedFilter(pattern, context);
+                    }
+                    catch { }
+                }
+            }
         }
 
         private static void TryAddWebResourceRequestedFilter(
@@ -378,44 +409,63 @@ img, video {
             await WebView.CoreWebView2.ExecuteScriptAsync(script);
         }
 
-        public async Task ApplyReaderModeAsync()
+        private bool _readerModeActive;
+
+        public async Task ApplyReaderModeAsync(bool isDark = true)
         {
             if (WebView.CoreWebView2 == null)
                 return;
 
-            const string script = @"
-(function() {
-    try {
+            // Toggle off: reload the page to restore original content
+            if (_readerModeActive)
+            {
+                _readerModeActive = false;
+                WebView.CoreWebView2.Reload();
+                return;
+            }
+
+            _readerModeActive = true;
+
+            string bg      = isDark ? "#121212" : "#ffffff";
+            string bodyBg  = isDark ? "#050505" : "#f3f4f6";
+            string color   = isDark ? "#e0f7ff" : "#1a1c22";
+            string shadow  = isDark ? "0 0 24px rgba(0,0,0,0.6)" : "0 2px 12px rgba(0,0,0,0.12)";
+
+            string bgLit      = System.Text.Json.JsonSerializer.Serialize(bg);
+            string bodyBgLit  = System.Text.Json.JsonSerializer.Serialize(bodyBg);
+            string colorLit   = System.Text.Json.JsonSerializer.Serialize(color);
+            string shadowLit  = System.Text.Json.JsonSerializer.Serialize(shadow);
+
+            string script = $@"
+(function(bg, bodyBg, color, shadow) {{
+    try {{
         var article = document.querySelector('article');
-        if (!article) {
+        if (!article) {{
             var ps = Array.from(document.querySelectorAll('p'));
-            if (ps.length > 5) {
+            if (ps.length > 5) {{
                 article = document.createElement('div');
                 ps.forEach(p => article.appendChild(p.cloneNode(true)));
-            } else {
-                article = document.body;
-            }
-        }
+            }} else {{
+                article = document.body.cloneNode(true);
+            }}
+        }}
         document.body.innerHTML = '';
         var container = document.createElement('div');
-        container.style.maxWidth = '800px';
-        container.style.margin = '40px auto';
-        container.style.fontFamily = 'Segoe UI, sans-serif';
-        container.style.fontSize = '18px';
-        container.style.lineHeight = '1.6';
-        container.style.color = '#e0f7ff';
-        container.style.backgroundColor = '#121212';
-        container.style.padding = '24px';
-        container.style.borderRadius = '12px';
-        container.style.boxShadow = '0 0 24px rgba(0,0,0,0.6)';
+        container.style.cssText = 'max-width:800px;margin:40px auto;font-family:Segoe UI,sans-serif;' +
+            'font-size:18px;line-height:1.6;color:' + color + ';background-color:' + bg + ';' +
+            'padding:24px;border-radius:12px;box-shadow:' + shadow + ';';
         container.appendChild(article);
-        document.body.style.backgroundColor = '#050505';
+        document.body.style.backgroundColor = bodyBg;
+        document.body.style.margin = '0';
+        document.body.style.padding = '16px';
         document.body.appendChild(container);
-    } catch(e) {}
-})();";
+    }} catch(e) {{}}
+}})({bgLit}, {bodyBgLit}, {colorLit}, {shadowLit});";
 
             await WebView.CoreWebView2.ExecuteScriptAsync(script);
         }
+
+        public bool IsReaderModeActive => _readerModeActive;
 
         public async Task EnterPictureInPictureAsync()
         {
