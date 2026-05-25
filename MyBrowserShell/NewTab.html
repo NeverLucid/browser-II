@@ -6,10 +6,28 @@
 <title>Private New Tab</title>
 <style>
     :root {
+        --bg:       #121317;
+        --surface:  #1c1e24;
+        --raised:   #272a32;
+        --border:   #48505d;
+        --text:     #f0f3f6;
+        --muted:    #a1a9b5;
+        --accent:   #0078d4;
+        --green:    #24b885;
         color-scheme: dark;
         font-family: "Segoe UI", system-ui, sans-serif;
-        background: #121317;
-        color: #f0f3f6;
+        background: var(--bg);
+        color: var(--text);
+    }
+
+    :root.light {
+        --bg:       #f3f4f6;
+        --surface:  #ffffff;
+        --raised:   #e8eaed;
+        --border:   #c8cdd5;
+        --text:     #1a1c22;
+        --muted:    #5a6070;
+        color-scheme: light;
     }
 
     body {
@@ -18,9 +36,10 @@
         display: grid;
         place-items: center;
         background:
-            linear-gradient(135deg, rgba(36, 184, 133, 0.18), transparent 34%),
-            linear-gradient(315deg, rgba(0, 120, 212, 0.18), transparent 36%),
-            #121317;
+            linear-gradient(135deg, rgba(36, 184, 133, 0.15), transparent 34%),
+            linear-gradient(315deg, rgba(0, 120, 212, 0.15), transparent 36%),
+            var(--bg);
+        transition: background 0.2s, color 0.2s;
     }
 
     main {
@@ -29,7 +48,13 @@
 
     .masthead {
         margin-bottom: 26px;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
     }
+
+    .masthead-text { flex: 1; }
 
     h1 {
         margin: 0 0 8px;
@@ -39,9 +64,29 @@
     }
 
     .status {
-        color: #a1a9b5;
+        color: var(--muted);
         font-size: 15px;
     }
+
+    /* ── Theme toggle ── */
+    #themeBtn {
+        flex-shrink: 0;
+        margin-top: 6px;
+        width: 36px;
+        height: 36px;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: var(--raised);
+        color: var(--text);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.15s, border-color 0.15s;
+        padding: 0;
+    }
+    #themeBtn:hover { border-color: var(--green); background: var(--surface); }
+    #themeBtn svg { display: block; }
 
     form {
         display: flex;
@@ -53,31 +98,27 @@
         flex: 1;
         min-width: 0;
         padding: 14px 16px;
-        border: 1px solid #48505d;
+        border: 1px solid var(--border);
         border-radius: 8px;
-        background: #1c1e24;
-        color: #f0f3f6;
+        background: var(--surface);
+        color: var(--text);
         font: inherit;
         outline: none;
+        transition: border-color 0.15s;
     }
-
-    input:focus {
-        border-color: #24b885;
-    }
+    input:focus { border-color: var(--green); }
 
     button, a {
-        border: 1px solid #48505d;
+        border: 1px solid var(--border);
         border-radius: 8px;
-        background: #272a32;
-        color: #f0f3f6;
+        background: var(--raised);
+        color: var(--text);
         font: inherit;
         text-decoration: none;
+        transition: border-color 0.15s, background 0.15s;
     }
-
-    button {
-        padding: 0 18px;
-        cursor: pointer;
-    }
+    button { padding: 0 18px; cursor: pointer; }
+    button:hover, a:hover { border-color: var(--accent); }
 
     .grid {
         display: grid;
@@ -91,18 +132,13 @@
         gap: 10px;
         margin-bottom: 24px;
     }
-
-    .quick-actions a {
-        padding: 9px 12px;
-        font-size: 13px;
-    }
+    .quick-actions a { padding: 9px 12px; font-size: 13px; }
 
     .tile {
         display: block;
         padding: 14px;
         min-height: 58px;
     }
-
     .tile strong {
         display: block;
         overflow: hidden;
@@ -110,30 +146,38 @@
         white-space: nowrap;
         font-size: 15px;
     }
-
     .tile span {
         display: block;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
         margin-top: 6px;
-        color: #a1a9b5;
+        color: var(--muted);
         font-size: 12px;
     }
 
     .empty {
-        border: 1px dashed #48505d;
+        border: 1px dashed var(--border);
         border-radius: 8px;
         padding: 18px;
-        color: #a1a9b5;
+        color: var(--muted);
     }
 </style>
 </head>
 <body>
 <main>
     <section class="masthead">
-        <h1>Private New Tab</h1>
-        <div class="status" id="status">Shields on</div>
+        <div class="masthead-text">
+            <h1>Private New Tab</h1>
+            <div class="status" id="status">Shields on</div>
+        </div>
+        <!-- Theme toggle: clicking sends mybrowsershell://toggle-theme to the shell -->
+        <button id="themeBtn" title="Toggle dark / light mode" onclick="toggleTheme()">
+            <svg id="themeIcon" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                <!-- moon path shown by default; sun path swapped in via JS -->
+                <path d="M17 12.5A7 7 0 1 1 7.5 3a5 5 0 0 0 9.5 9.5z"/>
+            </svg>
+        </button>
     </section>
 
     <form id="searchForm">
@@ -148,15 +192,43 @@
     </nav>
 
     <section id="bookmarks" class="grid" aria-label="Bookmarks">
-        <div class="empty">Save pages with the star button and they will appear here.</div>
+        <div class="empty">Save pages with the star button in the address bar and they will appear here.</div>
     </section>
 </main>
 
 <script>
-const search = document.getElementById("search");
+const search    = document.getElementById("search");
 const bookmarks = document.getElementById("bookmarks");
-const status = document.getElementById("status");
-let searchUrl = "https://duckduckgo.com/?q=";
+const status    = document.getElementById("status");
+const themeIcon = document.getElementById("themeIcon");
+let searchUrl   = "https://duckduckgo.com/?q=";
+let isDark      = true;
+
+const MOON_PATH = '<path d="M17 12.5A7 7 0 1 1 7.5 3a5 5 0 0 0 9.5 9.5z"/>';
+const SUN_PATH  = '<circle cx="10" cy="10" r="4"/>' +
+    '<line x1="10" y1="1" x2="10" y2="3"/>' +
+    '<line x1="10" y1="17" x2="10" y2="19"/>' +
+    '<line x1="1"  y1="10" x2="3"  y2="10"/>' +
+    '<line x1="17" y1="10" x2="19" y2="10"/>' +
+    '<line x1="3.5" y1="3.5"  x2="4.9" y2="4.9"/>' +
+    '<line x1="15.1" y1="15.1" x2="16.5" y2="16.5"/>' +
+    '<line x1="3.5" y1="16.5" x2="4.9" y2="15.1"/>' +
+    '<line x1="15.1" y1="4.9" x2="16.5" y2="3.5"/>';
+
+function applyTheme(dark) {
+    isDark = dark;
+    document.documentElement.classList.toggle("light", !dark);
+    themeIcon.innerHTML = dark ? MOON_PATH : SUN_PATH;
+    document.getElementById("themeBtn").title = dark
+        ? "Switch to light mode"
+        : "Switch to dark mode";
+}
+
+function toggleTheme() {
+    // Navigate to the app command — the shell intercepts it and toggles the theme,
+    // then re-injects data with the updated darkTheme flag.
+    window.location.href = "mybrowsershell://toggle-theme";
+}
 
 function resolveAddress(value) {
     const text = value.trim();
@@ -177,12 +249,14 @@ window.MyBrowserShellNewTab = {
     applyData(data) {
         status.textContent = data.shields || "Shields on";
         searchUrl = data.searchUrl || searchUrl;
+        if (typeof data.darkTheme === "boolean") applyTheme(data.darkTheme);
+
         bookmarks.innerHTML = "";
 
         if (!data.bookmarks || data.bookmarks.length === 0) {
             const empty = document.createElement("div");
             empty.className = "empty";
-            empty.textContent = "Save pages with the star button and they will appear here.";
+            empty.textContent = "Save pages with the star button in the address bar and they will appear here.";
             bookmarks.appendChild(empty);
             return;
         }
