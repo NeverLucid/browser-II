@@ -1035,18 +1035,18 @@ namespace MyBrowserShell
 
         private void AdjustZoom(double delta)
         {
-            var core = CurrentTab?.WebView.CoreWebView2;
-            if (core == null) return;
-            double next = Math.Round(Math.Clamp(core.ZoomFactor + delta, 0.25, 5.0), 2);
-            core.ZoomFactor = next;
+            var wv = CurrentTab?.WebView;
+            if (wv?.CoreWebView2 == null) return;
+            double next = Math.Round(Math.Clamp(wv.ZoomFactor + delta, 0.25, 5.0), 2);
+            wv.ZoomFactor = next;
             UpdateWindowTitle();
         }
 
         private void ResetZoom()
         {
-            var core = CurrentTab?.WebView.CoreWebView2;
-            if (core == null) return;
-            core.ZoomFactor = 1.0;
+            var wv = CurrentTab?.WebView;
+            if (wv?.CoreWebView2 == null) return;
+            wv.ZoomFactor = 1.0;
             UpdateWindowTitle();
         }
 
@@ -2078,12 +2078,13 @@ namespace MyBrowserShell
 
         private void UpdateWindowTitle()
         {
-            var core = CurrentTab?.WebView.CoreWebView2;
-            string zoom = (core != null && Math.Abs(core.ZoomFactor - 1.0) > 0.01)
-                ? $" — {(int)Math.Round(core.ZoomFactor * 100)}%"
+            var wv = CurrentTab?.WebView;
+            double zoom = (wv?.CoreWebView2 != null) ? wv.ZoomFactor : 1.0;
+            string zoomStr = Math.Abs(zoom - 1.0) > 0.01
+                ? $" — {(int)Math.Round(zoom * 100)}%"
                 : "";
             string shields = shieldsEnabled ? "Shields on" : "Shields off";
-            Text = $"MyBrowserShell — {shields}{zoom}";
+            Text = $"MyBrowserShell — {shields}{zoomStr}";
         }
 
         private void UpdateShieldsButton()
