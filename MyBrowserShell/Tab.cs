@@ -74,7 +74,28 @@ namespace MyBrowserShell
             AttachPrivacyHandlers();
             await ApplyShieldsAsync(PrivacyPolicy.ShieldsEnabled);
 
-    // ⭐ FIX: Allow local HTML files
+            // ⭐ FIX: Allow local HTML files
+            var normalizedUrl = NormalizeNavigationUrl(url);
+            if (normalizedUrl == null)
+                return;
+
+            _lastUrl = normalizedUrl;
+            WebView.Source = new Uri(normalizedUrl);
+        }
+
+        /// <summary>
+        /// Initializes this tab using the Tor-proxied WebView2 environment.
+        /// All traffic (including DNS) is routed through the local Tor SOCKS5 proxy.
+        /// </summary>
+        public async Task InitializeTorAsync(string url)
+        {
+            var environment = await BrowserRuntime.GetTorEnvironmentAsync();
+            var controllerOptions = environment.CreateCoreWebView2ControllerOptions();
+            controllerOptions.IsInPrivateModeEnabled = true;
+            await WebView.EnsureCoreWebView2Async(environment, controllerOptions);
+            AttachPrivacyHandlers();
+            await ApplyShieldsAsync(true); // Shields always on in Tor windows
+
             var normalizedUrl = NormalizeNavigationUrl(url);
             if (normalizedUrl == null)
                 return;
