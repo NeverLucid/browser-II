@@ -94,6 +94,7 @@ namespace MyBrowserShell
         private bool darkTheme = true;
         private bool shieldsEnabled = true;
         private bool pageLoading;
+        private bool isTorWindow;
         private TabPage? draggingTabPage;
         private bool isTrueFullscreen;
         private Tab? fullscreenTab;
@@ -114,8 +115,9 @@ namespace MyBrowserShell
         private Color TextColor => IsDarkTheme ? DarkText : LightText;
         private Color MutedTextColor => IsDarkTheme ? DarkMuted : LightMuted;
 
-        public Form1()
+        public Form1(bool torWindow = false)
         {
+            isTorWindow = torWindow;
             InitializeComponent();
             ReplaceTabHost();
 
@@ -497,13 +499,21 @@ namespace MyBrowserShell
 
         private void ApplyShellTheme()
         {
-            BackColor = WindowColor;
-            rootLayout.BackColor = WindowColor;
-            tabControl1.BackColor = WindowColor;
-            tabStripBar.BackColor = ChromeColor;
-            topBar.BackColor = ChromeColor;
-            findPanel.BackColor = ChromeColor;
-            tabFlow.BackColor = ChromeColor;
+            // Tor windows get a subtle purple tint on the chrome to make them visually distinct
+            Color effectiveChrome = isTorWindow
+                ? Color.FromArgb(38, 28, 54)   // dark purple
+                : ChromeColor;
+            Color effectiveWindow = isTorWindow
+                ? Color.FromArgb(22, 16, 34)   // deeper purple
+                : WindowColor;
+
+            BackColor = effectiveWindow;
+            rootLayout.BackColor = effectiveWindow;
+            tabControl1.BackColor = effectiveWindow;
+            tabStripBar.BackColor = effectiveChrome;
+            topBar.BackColor = effectiveChrome;
+            findPanel.BackColor = effectiveChrome;
+            tabFlow.BackColor = effectiveChrome;
 
             addressContainer.BackColor = Color.Transparent;
             addressBar.BackColor = RaisedColor;
@@ -695,7 +705,10 @@ namespace MyBrowserShell
             tab.PrivacyStatsChanged += (s, e) => UpdateShieldsButton();
             ApplyTabFilter(selectPage: page);
 
-            await tab.InitializeAsync(url);
+            if (isTorWindow)
+                await tab.InitializeTorAsync(url);
+            else
+                await tab.InitializeAsync(url);
             if (tabMetadata.TryGetValue(page, out var initial) && initial.IsMuted)
                 await tab.SetMutedAsync(true);
 
@@ -1972,7 +1985,49 @@ namespace MyBrowserShell
                 settingsStore.Save(settings);
             });
             menu.Items.Add("Choose download folder...", null, (s, e) => ChooseDownloadFolder());
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("New Tor Window", null, async (s, e) => await OpenTorWindowAsync());
             menu.Show(settingsButton, new Point(0, settingsButton.Height));
+        }
+
+        /// <summary>
+        /// Starts the Tor proxy (if not already running) then opens a new browser window
+        /// that routes all traffic through Tor. The new window is visually distinguished
+        /// by a purple chrome tint and a [Tor] title bar badge.
+        /// </summary>
+        private async Task OpenTorWindowAsync()
+        {
+            // Show a "connecting" hint while Tor bootstraps (can take a few seconds)
+            var splash = new Form
+            {
+                Text = "Connecting to Tor…",
+                Size = new Size(360, 110),
+                StartPosition = FormStartPosition.CenterScreen,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MinimizeBox = false,
+                MaximizeBox = false,
+                BackColor = Color.FromArgb(22, 16, 34),
+                ForeColor = Color.FromArgb(220, 200, 255),
+            };
+            var label = new Label
+            {
+                Text = "Connecting to the Tor network...\nThis may take a few seconds.",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font = new Font("Segoe UI", 10f),
+            };
+            splash.Controls.Add(label);
+            splash.Show(this);
+            splash.Refresh();
+
+            bool ok = await TorProxy.EnsureRunningAsync();
+            splash.Close();
+
+            if (!ok)
+                return; // TorProxy already showed an error dialog
+
+            var torForm = new Form1(torWindow: true);
+            torForm.Show();
         }
 
         /// <summary>
@@ -2084,7 +2139,8 @@ namespace MyBrowserShell
                 ? $" — {(int)Math.Round(zoom * 100)}%"
                 : "";
             string shields = shieldsEnabled ? "Shields on" : "Shields off";
-            Text = $"MyBrowserShell — {shields}{zoomStr}";
+            string torTag = isTorWindow ? " [Tor]" : "";
+            Text = $"MyBrowserShell{torTag} — {shields}{zoomStr}";
         }
 
         private void UpdateShieldsButton()
