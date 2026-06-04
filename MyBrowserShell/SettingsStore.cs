@@ -22,7 +22,11 @@ namespace MyBrowserShell
                     return new BrowserSettings();
 
                 var settings = JsonSerializer.Deserialize<BrowserSettings>(File.ReadAllText(filePath));
-                return settings ?? new BrowserSettings();
+                if (settings == null)
+                    return new BrowserSettings();
+
+                settings.ShieldDisabledHosts ??= new();
+                return settings;
             }
             catch
             {

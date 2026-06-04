@@ -1,0 +1,15 @@
+# Build output
+**/bin/
+**/obj/
+
+# IDE/local state
+.vs/
+.vscode/
+*.user
+*.suo
+*.lscache
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp

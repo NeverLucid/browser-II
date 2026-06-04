@@ -3,214 +3,319 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Private New Tab</title>
+<title>New Tab</title>
 <style>
     :root {
-        --bg:       #121317;
-        --surface:  #1c1e24;
-        --raised:   #272a32;
-        --border:   #48505d;
-        --text:     #f0f3f6;
-        --muted:    #a1a9b5;
-        --accent:   #0078d4;
-        --green:    #24b885;
+        --window: #121317;
+        --chrome: #1c1e24;
+        --surface: #272a32;
+        --raised: #343842;
+        --border: #48505d;
+        --text: #f0f3f6;
+        --muted: #a1a9b5;
+        --accent: #0078d4;
+        --green: #24b885;
         color-scheme: dark;
         font-family: "Segoe UI", system-ui, sans-serif;
-        background: var(--bg);
+        background: var(--window);
         color: var(--text);
     }
 
     :root.light {
-        --bg:       #f3f4f6;
-        --surface:  #ffffff;
-        --raised:   #e8eaed;
-        --border:   #c8cdd5;
-        --text:     #1a1c22;
-        --muted:    #5a6070;
+        --window: #f4f6f9;
+        --chrome: #fcfdff;
+        --surface: #ebeff4;
+        --raised: #ffffff;
+        --border: #ccd4df;
+        --text: #1c2128;
+        --muted: #5b6571;
         color-scheme: light;
     }
+
+    * { box-sizing: border-box; }
 
     body {
         min-height: 100vh;
         margin: 0;
-        display: grid;
-        place-items: center;
-        background:
-            linear-gradient(135deg, rgba(36, 184, 133, 0.15), transparent 34%),
-            linear-gradient(315deg, rgba(0, 120, 212, 0.15), transparent 36%),
-            var(--bg);
-        transition: background 0.2s, color 0.2s;
+        background: var(--window);
+        color: var(--text);
     }
 
     main {
-        width: min(840px, calc(100vw - 48px));
+        width: min(760px, calc(100vw - 36px));
+        margin: 0 auto;
+        padding: clamp(34px, 10vh, 92px) 0 34px;
     }
 
-    .masthead {
-        margin-bottom: 26px;
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 12px;
-    }
-
-    .masthead-text { flex: 1; }
-
-    h1 {
-        margin: 0 0 8px;
-        font-size: clamp(32px, 7vw, 58px);
-        font-weight: 720;
-        letter-spacing: 0;
-    }
-
-    .status {
-        color: var(--muted);
-        font-size: 15px;
-    }
-
-    /* ── Theme toggle ── */
-    #themeBtn {
-        flex-shrink: 0;
-        margin-top: 6px;
-        width: 36px;
-        height: 36px;
-        border: 1px solid var(--border);
-        border-radius: 9px;
-        background: var(--raised);
-        color: var(--text);
-        cursor: pointer;
+    .topline {
         display: flex;
         align-items: center;
-        justify-content: center;
-        transition: background 0.15s, border-color 0.15s;
-        padding: 0;
-    }
-    #themeBtn:hover { border-color: var(--green); background: var(--surface); }
-    #themeBtn svg { display: block; }
-
-    form {
-        display: flex;
-        gap: 10px;
-        margin-bottom: 14px;
-    }
-
-    input {
-        flex: 1;
-        min-width: 0;
-        padding: 14px 16px;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: var(--surface);
-        color: var(--text);
-        font: inherit;
-        outline: none;
-        transition: border-color 0.15s;
-    }
-    input:focus { border-color: var(--green); }
-
-    button, a {
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: var(--raised);
-        color: var(--text);
-        font: inherit;
-        text-decoration: none;
-        transition: border-color 0.15s, background 0.15s;
-    }
-    button { padding: 0 18px; cursor: pointer; }
-    button:hover, a:hover { border-color: var(--accent); }
-
-    .grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+        justify-content: space-between;
         gap: 12px;
+        min-height: 38px;
+        margin-bottom: 36px;
     }
 
-    .quick-actions {
+    .brand {
         display: flex;
-        flex-wrap: wrap;
+        align-items: center;
         gap: 10px;
-        margin-bottom: 24px;
+        min-width: 0;
+        color: var(--muted);
+        font-size: 13px;
     }
-    .quick-actions a { padding: 9px 12px; font-size: 13px; }
 
-    .tile {
-        display: block;
-        padding: 14px;
-        min-height: 58px;
+    .mark {
+        width: 22px;
+        height: 22px;
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        background: var(--chrome);
+        position: relative;
+        flex: 0 0 auto;
     }
-    .tile strong {
-        display: block;
+
+    .mark::after {
+        content: "";
+        position: absolute;
+        inset: 5px;
+        border-radius: 4px;
+        border: 2px solid var(--green);
+        border-top-color: var(--accent);
+    }
+
+    #status {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        font-size: 15px;
     }
+
+    #themeBtn {
+        width: 34px;
+        height: 34px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--chrome);
+        color: var(--text);
+        cursor: pointer;
+        display: grid;
+        place-items: center;
+        padding: 0;
+    }
+
+    #themeBtn:hover {
+        border-color: var(--green);
+        background: var(--surface);
+    }
+
+    .search-wrap {
+        margin: 0 auto 18px;
+        width: min(640px, 100%);
+    }
+
+    form {
+        display: grid;
+        grid-template-columns: 1fr 44px;
+        min-height: 46px;
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        background: var(--chrome);
+        overflow: hidden;
+    }
+
+    form:focus-within {
+        border-color: var(--green);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 18%, transparent);
+    }
+
+    input {
+        min-width: 0;
+        border: 0;
+        padding: 0 6px 0 20px;
+        background: transparent;
+        color: var(--text);
+        font: 15px "Segoe UI", system-ui, sans-serif;
+        outline: none;
+    }
+
+    .go {
+        border: 0;
+        border-left: 1px solid transparent;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        display: grid;
+        place-items: center;
+        padding: 0;
+    }
+
+    .go:hover { color: var(--text); }
+
+    .quick-actions {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+        width: min(430px, 100%);
+        margin: 0 auto 30px;
+    }
+
+    .quick-actions a,
+    .tile,
+    .empty {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--chrome);
+        color: var(--text);
+        text-decoration: none;
+    }
+
+    .quick-actions a {
+        min-height: 38px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        padding: 0 10px;
+        font-size: 13px;
+    }
+
+    .quick-actions a:hover,
+    .tile:hover {
+        border-color: var(--accent);
+        background: var(--surface);
+    }
+
+    .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--green);
+        flex: 0 0 auto;
+    }
+
+    .bookmarks-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin: 0 0 10px;
+        color: var(--muted);
+        font-size: 12px;
+    }
+
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(178px, 1fr));
+        gap: 10px;
+    }
+
+    .tile {
+        display: block;
+        min-height: 64px;
+        padding: 12px;
+    }
+
+    .tile strong,
     .tile span {
         display: block;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        margin-top: 6px;
+    }
+
+    .tile strong {
+        font-size: 14px;
+        font-weight: 600;
+    }
+
+    .tile span {
+        margin-top: 7px;
         color: var(--muted);
         font-size: 12px;
     }
 
     .empty {
-        border: 1px dashed var(--border);
-        border-radius: 8px;
-        padding: 18px;
+        min-height: 64px;
+        padding: 22px 14px;
         color: var(--muted);
+        text-align: center;
+        font-size: 13px;
+    }
+
+    @media (max-width: 520px) {
+        main {
+            width: min(100vw - 24px, 760px);
+            padding-top: 30px;
+        }
+
+        .topline {
+            margin-bottom: 22px;
+        }
+
+        .quick-actions {
+            grid-template-columns: 1fr;
+        }
     }
 </style>
 </head>
 <body>
 <main>
-    <section class="masthead">
-        <div class="masthead-text">
-            <h1>Private New Tab</h1>
-            <div class="status" id="status">Shields on</div>
+    <header class="topline">
+        <div class="brand">
+            <span class="mark" aria-hidden="true"></span>
+            <span id="status">Shields on</span>
         </div>
-        <!-- Theme toggle: clicking sends mybrowsershell://toggle-theme to the shell -->
-        <button id="themeBtn" title="Toggle dark / light mode" onclick="toggleTheme()">
+        <button id="themeBtn" title="Toggle theme" onclick="toggleTheme()" aria-label="Toggle theme">
             <svg id="themeIcon" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-                <!-- moon path shown by default; sun path swapped in via JS -->
                 <path d="M17 12.5A7 7 0 1 1 7.5 3a5 5 0 0 0 9.5 9.5z"/>
             </svg>
         </button>
+    </header>
+
+    <section class="search-wrap" aria-label="Search">
+        <form id="searchForm">
+            <input id="search" autocomplete="off" autofocus placeholder="Search or enter address">
+            <button class="go" type="submit" title="Go" aria-label="Go">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 10h11"/>
+                    <path d="m10 5 5 5-5 5"/>
+                </svg>
+            </button>
+        </form>
     </section>
 
-    <form id="searchForm">
-        <input id="search" autocomplete="off" autofocus placeholder="Search or enter address">
-        <button type="submit">Go</button>
-    </form>
-
     <nav class="quick-actions" aria-label="Quick actions">
-        <a href="mybrowsershell://bookmarks">Bookmarks</a>
-        <a href="mybrowsershell://downloads">Downloads</a>
-        <a href="mybrowsershell://settings">Settings</a>
+        <a href="mybrowsershell://bookmarks"><span class="dot"></span>Bookmarks</a>
+        <a href="mybrowsershell://downloads"><span class="dot"></span>Downloads</a>
+        <a href="mybrowsershell://settings"><span class="dot"></span>Settings</a>
     </nav>
 
-    <section id="bookmarks" class="grid" aria-label="Bookmarks">
-        <div class="empty">Save pages with the star button in the address bar and they will appear here.</div>
+    <section aria-label="Bookmarks">
+        <div class="bookmarks-head">
+            <span>Bookmarks</span>
+            <span id="bookmarkCount">0</span>
+        </div>
+        <div id="bookmarks" class="grid">
+            <div class="empty">No bookmarks yet</div>
+        </div>
     </section>
 </main>
 
 <script>
-const search    = document.getElementById("search");
+const search = document.getElementById("search");
 const bookmarks = document.getElementById("bookmarks");
-const status    = document.getElementById("status");
+const bookmarkCount = document.getElementById("bookmarkCount");
+const status = document.getElementById("status");
 const themeIcon = document.getElementById("themeIcon");
-let searchUrl   = "https://duckduckgo.com/?q=";
-let isDark      = true;
+let searchUrl = "https://duckduckgo.com/?q=";
+let isDark = true;
 
 const MOON_PATH = '<path d="M17 12.5A7 7 0 1 1 7.5 3a5 5 0 0 0 9.5 9.5z"/>';
-const SUN_PATH  = '<circle cx="10" cy="10" r="4"/>' +
+const SUN_PATH = '<circle cx="10" cy="10" r="4"/>' +
     '<line x1="10" y1="1" x2="10" y2="3"/>' +
     '<line x1="10" y1="17" x2="10" y2="19"/>' +
-    '<line x1="1"  y1="10" x2="3"  y2="10"/>' +
+    '<line x1="1" y1="10" x2="3" y2="10"/>' +
     '<line x1="17" y1="10" x2="19" y2="10"/>' +
-    '<line x1="3.5" y1="3.5"  x2="4.9" y2="4.9"/>' +
+    '<line x1="3.5" y1="3.5" x2="4.9" y2="4.9"/>' +
     '<line x1="15.1" y1="15.1" x2="16.5" y2="16.5"/>' +
     '<line x1="3.5" y1="16.5" x2="4.9" y2="15.1"/>' +
     '<line x1="15.1" y1="4.9" x2="16.5" y2="3.5"/>';
@@ -219,14 +324,10 @@ function applyTheme(dark) {
     isDark = dark;
     document.documentElement.classList.toggle("light", !dark);
     themeIcon.innerHTML = dark ? MOON_PATH : SUN_PATH;
-    document.getElementById("themeBtn").title = dark
-        ? "Switch to light mode"
-        : "Switch to dark mode";
+    document.getElementById("themeBtn").title = dark ? "Switch to light mode" : "Switch to dark mode";
 }
 
 function toggleTheme() {
-    // Navigate to the app command — the shell intercepts it and toggles the theme,
-    // then re-injects data with the updated darkTheme flag.
     window.location.href = "mybrowsershell://toggle-theme";
 }
 
@@ -251,17 +352,19 @@ window.MyBrowserShellNewTab = {
         searchUrl = data.searchUrl || searchUrl;
         if (typeof data.darkTheme === "boolean") applyTheme(data.darkTheme);
 
+        const items = Array.isArray(data.bookmarks) ? data.bookmarks : [];
+        bookmarkCount.textContent = String(items.length);
         bookmarks.innerHTML = "";
 
-        if (!data.bookmarks || data.bookmarks.length === 0) {
+        if (items.length === 0) {
             const empty = document.createElement("div");
             empty.className = "empty";
-            empty.textContent = "Save pages with the star button in the address bar and they will appear here.";
+            empty.textContent = "No bookmarks yet";
             bookmarks.appendChild(empty);
             return;
         }
 
-        data.bookmarks.forEach(bookmark => {
+        items.forEach(bookmark => {
             const link = document.createElement("a");
             link.className = "tile";
             link.href = bookmark.url;

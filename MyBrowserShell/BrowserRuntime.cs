@@ -32,16 +32,11 @@ namespace MyBrowserShell
                 options: CreateEnvironmentOptions());
         }
 
-        // ── Tor environment ──────────────────────────────────────────────────
         internal static readonly string TorUserDataFolder =
             Path.Combine(Path.GetTempPath(), "MyBrowserShell", "TorWebView2");
 
         private static Task<CoreWebView2Environment>? _torEnvironmentTask;
 
-        /// <summary>
-        /// Returns a WebView2 environment that routes all traffic through the
-        /// Tor SOCKS5 proxy (127.0.0.1:9050). Each call returns the same cached task.
-        /// </summary>
         public static Task<CoreWebView2Environment> GetTorEnvironmentAsync()
         {
             return _torEnvironmentTask ??= CoreWebView2Environment.CreateAsync(
@@ -52,8 +47,6 @@ namespace MyBrowserShell
 
         private static CoreWebView2EnvironmentOptions CreateTorEnvironmentOptions()
         {
-            // Route all traffic (including DNS) through the local Tor SOCKS5 proxy.
-            // --host-resolver-rules redirects DNS so hostnames are not leaked.
             string torArgs = AdditionalBrowserArguments +
                 $" --proxy-server=socks5://127.0.0.1:{TorProxy.DefaultSocksPort}" +
                 " --host-resolver-rules=\"MAP * ~NOTFOUND , EXCLUDE 127.0.0.1\"";
@@ -74,7 +67,7 @@ namespace MyBrowserShell
                 AllowSingleSignOnUsingOSPrimaryAccount = false,
                 AreBrowserExtensionsEnabled = false,
                 EnableTrackingPrevention = true,
-                AdditionalBrowserArguments = BrowserRuntime.AdditionalBrowserArguments
+                AdditionalBrowserArguments = AdditionalBrowserArguments
             };
         }
     }

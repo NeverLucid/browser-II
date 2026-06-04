@@ -127,7 +127,7 @@ namespace MyBrowserShell
             downloadManager = new DownloadManager();
             settings = settingsStore.Load();
             darkTheme = settings.DarkTheme;
-            shieldsEnabled = settings.ShieldsEnabled;
+            shieldsEnabled = isTorWindow || settings.ShieldsEnabled;
             PrivacyPolicy.SetShieldsEnabled(shieldsEnabled);
             if (!string.IsNullOrWhiteSpace(settings.HomeUrl))
                 homeUrl = settings.HomeUrl;
@@ -370,7 +370,7 @@ namespace MyBrowserShell
             clearDataButton.Click += async (s, e) => await ClearAllPrivateDataAsync();
             bookmarksButton.Click += (s, e) => ShowBookmarksMenu();
             downloadsButton.Click += (s, e) => ShowDownloadsMenu();
-            shieldsButton.Click += (s, e) => ShowPrivacyReportMenu();
+            shieldsButton.Click += (s, e) => ShowPrivacyReportPanel();
             settingsButton.Click += (s, e) => ShowSettingsMenu();
 
             actionPanel.Controls.AddRange(new Control[]
@@ -544,7 +544,7 @@ namespace MyBrowserShell
 
         private ButtonTheme CreateButtonTheme()
         {
-            return new ButtonTheme(
+            return _cachedButtonTheme ??= new ButtonTheme(
                 SurfaceColor,
                 RaisedColor,
                 BorderColor,
@@ -708,7 +708,7 @@ namespace MyBrowserShell
             if (isTorWindow)
                 await tab.InitializeTorAsync(url);
             else
-                await tab.InitializeAsync(url);
+                await tab.InitializeAsync(url, GetEffectiveShieldsForUrl(url));
             if (tabMetadata.TryGetValue(page, out var initial) && initial.IsMuted)
                 await tab.SetMutedAsync(true);
 
@@ -722,6 +722,10 @@ namespace MyBrowserShell
                     e.Cancel = true;
                     return;
                 }
+
+                bool effectiveShields = GetEffectiveShieldsForUrl(e.Uri);
+                tab.SetShieldsForNavigation(effectiveShields);
+                _ = tab.ApplyShieldsAsync(effectiveShields);
 
                 BeginInvoke(new Action(() =>
                 {
@@ -1773,7 +1777,7 @@ namespace MyBrowserShell
             var state = CurrentTab?.State;
             var menu = new ContextMenuStrip();
 
-            menu.Items.Add(new ToolStripMenuItem(shieldsEnabled ? "Shields on" : "Shields off")
+            menu.Items.Add(new ToolStripMenuItem(isTorWindow ? "Tor shields on" : shieldsEnabled ? "Shields on" : "Shields off")
             {
                 Enabled = false
             });
@@ -1799,10 +1803,238 @@ namespace MyBrowserShell
             }
 
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add(shieldsEnabled ? "Disable shields and reload" : "Enable shields and reload",
-                null,
-                async (s, e) => await ToggleShieldsAsync());
+            if (isTorWindow)
+            {
+                menu.Items.Add(new ToolStripMenuItem("Tor windows keep shields on") { Enabled = false });
+            }
+            else
+            {
+                menu.Items.Add(shieldsEnabled ? "Disable shields and reload" : "Enable shields and reload",
+                    null,
+                    async (s, e) => await ToggleShieldsAsync());
+            }
             menu.Show(shieldsButton, new Point(0, shieldsButton.Height));
+        }
+
+        private void ShowPrivacyReportPanel()
+        {
+            var tab = CurrentTab;
+            var state = tab?.State;
+            string? host = SiteShieldPolicy.NormalizeHost(tab?.GetCurrentUrl());
+            bool hasSiteException = SiteShieldPolicy.IsHostExcepted(host, settings.ShieldDisabledHosts);
+            bool effectiveShields = tab?.EffectiveShieldsEnabled ?? GetEffectiveShieldsForUrl(tab?.GetCurrentUrl());
+
+            var form = new Form
+            {
+                Text = "Privacy report",
+                Size = new Size(620, 520),
+                MinimumSize = new Size(520, 420),
+                StartPosition = FormStartPosition.CenterParent,
+                BackColor = WindowColor,
+                ForeColor = TextColor,
+                FormBorderStyle = FormBorderStyle.Sizable
+            };
+
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 4,
+                Padding = new Padding(14),
+                BackColor = WindowColor
+            };
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
+
+            string titleText = host == null ? "No site loaded" : host;
+            var title = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = titleText,
+                Font = new Font("Segoe UI", 15f, FontStyle.Bold),
+                ForeColor = TextColor,
+                TextAlign = ContentAlignment.MiddleLeft,
+                AutoEllipsis = true
+            };
+
+            string shieldText = isTorWindow
+                ? "Tor window - shields locked on"
+                : !shieldsEnabled
+                    ? "Global shields are off"
+                    : hasSiteException
+                        ? "Shields are off for this site"
+                        : effectiveShields ? "Shields are on for this site" : "Shields are off for this site";
+            var summary = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = state == null
+                    ? shieldText
+                    : $"{shieldText} - {state.BlockedTrackers} trackers, {state.BlockedPopups} popups, {state.DeniedPermissions} permissions, {state.BlockedRedirects} redirects, {state.BlockedDownloads} downloads blocked",
+                Font = new Font("Segoe UI", 9.5f),
+                ForeColor = MutedTextColor,
+                TextAlign = ContentAlignment.MiddleLeft,
+                AutoEllipsis = true
+            };
+
+            var list = new ListView
+            {
+                Dock = DockStyle.Fill,
+                View = View.Details,
+                FullRowSelect = true,
+                GridLines = false,
+                BackColor = ChromeColor,
+                ForeColor = TextColor,
+                BorderStyle = BorderStyle.FixedSingle
+            };
+            list.Columns.Add("Type", 120);
+            list.Columns.Add("Host or item", 420);
+
+            foreach (var groupName in new[] { "Trackers", "Popups", "Permissions", "Redirects", "Downloads" })
+                list.Groups.Add(groupName, groupName);
+
+            if (state?.BlockedItems.Count > 0)
+            {
+                foreach (var item in state.BlockedItems.AsEnumerable().Reverse())
+                {
+                    string group = GetPrivacyItemGroup(item);
+                    var row = new ListViewItem(group)
+                    {
+                        Group = list.Groups[group],
+                        ToolTipText = item
+                    };
+                    row.SubItems.Add(TrimMenuText(GetPrivacyItemDisplay(item), 96));
+                    list.Items.Add(row);
+                }
+            }
+            else
+            {
+                var row = new ListViewItem("Report")
+                {
+                    Group = list.Groups["Trackers"]
+                };
+                row.SubItems.Add("Nothing blocked on this page yet");
+                list.Items.Add(row);
+            }
+
+            var actions = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.RightToLeft,
+                WrapContents = false,
+                Padding = new Padding(0, 8, 0, 0)
+            };
+
+            var close = CreateReportButton("Close");
+            close.Click += (s, e) => form.Close();
+
+            var reload = CreateReportButton("Reload");
+            reload.Enabled = tab?.WebView.CoreWebView2 != null;
+            reload.Click += (s, e) =>
+            {
+                tab?.WebView.CoreWebView2?.Reload();
+                form.Close();
+            };
+
+            var clear = CreateReportButton("Clear report");
+            clear.Enabled = state != null;
+            clear.Click += (s, e) =>
+            {
+                state?.ResetPrivacyReport();
+                UpdateShieldsButton();
+                form.Close();
+            };
+
+            var siteToggle = CreateReportButton(hasSiteException ? "Enable for site" : "Disable for site");
+            siteToggle.Enabled = host != null && !isTorWindow && shieldsEnabled;
+            siteToggle.Click += async (s, e) =>
+            {
+                await SetCurrentSiteShieldExceptionAsync(!hasSiteException, reload: true);
+                form.Close();
+            };
+
+            actions.Controls.AddRange(new Control[] { close, reload, clear, siteToggle });
+
+            layout.Controls.Add(title, 0, 0);
+            layout.Controls.Add(summary, 0, 1);
+            layout.Controls.Add(list, 0, 2);
+            layout.Controls.Add(actions, 0, 3);
+            form.Controls.Add(layout);
+            form.Show(this);
+        }
+
+        private Button CreateReportButton(string text)
+        {
+            return new Button
+            {
+                Text = text,
+                AutoSize = true,
+                Height = 30,
+                Margin = new Padding(6, 0, 0, 0),
+                BackColor = RaisedColor,
+                ForeColor = TextColor,
+                FlatStyle = FlatStyle.Flat
+            };
+        }
+
+        private static string GetPrivacyItemGroup(string item)
+        {
+            if (item.StartsWith("Popup", StringComparison.OrdinalIgnoreCase))
+                return "Popups";
+            if (item.StartsWith("Permission", StringComparison.OrdinalIgnoreCase))
+                return "Permissions";
+            if (item.StartsWith("Redirect", StringComparison.OrdinalIgnoreCase))
+                return "Redirects";
+            if (item.StartsWith("Download", StringComparison.OrdinalIgnoreCase))
+                return "Downloads";
+            return "Trackers";
+        }
+
+        private static string GetPrivacyItemDisplay(string item)
+        {
+            int index = item.LastIndexOf("http", StringComparison.OrdinalIgnoreCase);
+            if (index >= 0 && Uri.TryCreate(item[index..], UriKind.Absolute, out var uri))
+                return uri.Host + uri.PathAndQuery;
+
+            int colon = item.IndexOf(':');
+            return colon >= 0 && colon + 1 < item.Length
+                ? item[(colon + 1)..].Trim()
+                : item;
+        }
+
+        private bool GetEffectiveShieldsForUrl(string? url)
+        {
+            if (isTorWindow)
+                return true;
+
+            return shieldsEnabled && !SiteShieldPolicy.IsHostExcepted(url, settings.ShieldDisabledHosts);
+        }
+
+        private async Task SetCurrentSiteShieldExceptionAsync(bool disabled, bool reload)
+        {
+            var tab = CurrentTab;
+            string? host = SiteShieldPolicy.NormalizeHost(tab?.GetCurrentUrl());
+            if (tab == null || host == null)
+                return;
+
+            SiteShieldPolicy.SetException(settings.ShieldDisabledHosts, host, disabled);
+            settingsStore.Save(settings);
+            await ApplyShieldsToTabAsync(tab, reload);
+        }
+
+        private async Task ApplyShieldsToTabAsync(Tab tab, bool reload)
+        {
+            bool effective = GetEffectiveShieldsForUrl(tab.GetCurrentUrl());
+            tab.SetShieldsForNavigation(effective);
+            await tab.ApplyShieldsAsync(effective);
+            await InjectNewTabDataAsync(tab);
+
+            if (reload)
+                tab.WebView.CoreWebView2?.Reload();
+
+            UpdateWindowTitle();
+            UpdateShieldsButton();
         }
 
         private async Task InjectNewTabDataAsync(Tab? tab)
@@ -1816,7 +2048,8 @@ namespace MyBrowserShell
                     .OrderBy(b => b.Title)
                     .Select(b => new { title = b.Title, url = b.Url })
                     .ToArray(),
-                shields    = shieldsEnabled ? "Shields on" : "Shields off",
+                shields    = isTorWindow ? "Tor shields on" : shieldsEnabled ? "Shields on" : "Shields off",
+                tor        = isTorWindow,
                 searchUrl  = settings.SearchUrl,
                 darkTheme  = darkTheme,
             };
@@ -1898,18 +2131,25 @@ namespace MyBrowserShell
                     settings.RestoreSavedSession = !settings.RestoreSavedSession;
                     settingsStore.Save(settings);
                 });
-            menu.Items.Add(settings.ShieldsEnabled ? "Shields default: on" : "Shields default: off",
-                null,
-                async (s, e) =>
-                {
-                    if (settings.ShieldsEnabled == shieldsEnabled)
-                        await ToggleShieldsAsync();
-                    else
+            if (isTorWindow)
+            {
+                menu.Items.Add(new ToolStripMenuItem("Shields default: Tor always on") { Enabled = false });
+            }
+            else
+            {
+                menu.Items.Add(settings.ShieldsEnabled ? "Shields default: on" : "Shields default: off",
+                    null,
+                    async (s, e) =>
                     {
-                        settings.ShieldsEnabled = !settings.ShieldsEnabled;
-                        settingsStore.Save(settings);
-                    }
-                });
+                        if (settings.ShieldsEnabled == shieldsEnabled)
+                            await ToggleShieldsAsync();
+                        else
+                        {
+                            settings.ShieldsEnabled = !settings.ShieldsEnabled;
+                            settingsStore.Save(settings);
+                        }
+                    });
+            }
             menu.Items.Add(new ToolStripSeparator());
             // ── Search engine submenu ────────────────────────────────────────
             var searchSubmenu = new ToolStripMenuItem("Search engine");
@@ -1968,6 +2208,15 @@ namespace MyBrowserShell
             searchSubmenu.DropDownItems.Add(customItem);
 
             menu.Items.Add(searchSubmenu);
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("Duplicate current tab", null, (s, e) =>
+            {
+                if (tabControl1.SelectedTab != null)
+                    DuplicateTab(tabControl1.SelectedTab);
+            });
+            menu.Items.Add("Copy page link", null, (s, e) => CopyCurrentPageLink());
+            menu.Items.Add("Open downloads folder", null, (s, e) => OpenDownloadsFolder());
+            menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Use current page as home", null, (s, e) =>
             {
                 var url = CurrentTab?.GetCurrentUrl();
@@ -2131,6 +2380,35 @@ namespace MyBrowserShell
             }
         }
 
+        private void CopyCurrentPageLink()
+        {
+            var url = CurrentTab?.GetCurrentUrl();
+            if (string.IsNullOrWhiteSpace(url))
+                return;
+
+            try
+            {
+                Clipboard.SetText(url);
+            }
+            catch { }
+        }
+
+        private void OpenDownloadsFolder()
+        {
+            string folder = Directory.Exists(settings.DefaultDownloadFolder)
+                ? settings.DefaultDownloadFolder
+                : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+            try
+            {
+                Process.Start(new ProcessStartInfo("explorer.exe", "\"" + folder + "\"")
+                {
+                    UseShellExecute = true
+                });
+            }
+            catch { }
+        }
+
         private void UpdateWindowTitle()
         {
             var wv = CurrentTab?.WebView;
@@ -2138,22 +2416,33 @@ namespace MyBrowserShell
             string zoomStr = Math.Abs(zoom - 1.0) > 0.01
                 ? $" — {(int)Math.Round(zoom * 100)}%"
                 : "";
-            string shields = shieldsEnabled ? "Shields on" : "Shields off";
+            string shields = isTorWindow
+                ? "Tor shields on"
+                : GetEffectiveShieldsForUrl(CurrentTab?.GetCurrentUrl()) ? "Shields on" : "Shields off";
             string torTag = isTorWindow ? " [Tor]" : "";
             Text = $"MyBrowserShell{torTag} — {shields}{zoomStr}";
         }
 
         private void UpdateShieldsButton()
         {
-            shieldsButton.Icon = shieldsEnabled ? IconKind.Shield : IconKind.ShieldOff;
-            toolTip.SetToolTip(shieldsButton, shieldsEnabled
-                ? "Privacy shields on (click to disable)"
-                : "Privacy shields off (click to enable)");
+            bool effective = GetEffectiveShieldsForUrl(CurrentTab?.GetCurrentUrl());
+            shieldsButton.Icon = effective ? IconKind.Shield : IconKind.ShieldOff;
+            toolTip.SetToolTip(shieldsButton, isTorWindow
+                ? "Tor shields on"
+                : effective ? "Privacy shields on for this site" : "Privacy shields off for this site");
             shieldsButton.Invalidate();
         }
 
         private async Task ToggleShieldsAsync()
         {
+            if (isTorWindow)
+            {
+                shieldsEnabled = true;
+                UpdateShieldsButton();
+                await InjectNewTabDataAsync(CurrentTab);
+                return;
+            }
+
             shieldsEnabled = !shieldsEnabled;
             settings.ShieldsEnabled = shieldsEnabled;
             settingsStore.Save(settings);
@@ -2165,13 +2454,10 @@ namespace MyBrowserShell
             {
                 if (page.Tag is Tab tab)
                 {
-                    // Update WebResourceRequestedFilter registrations for this tab
-                    tab.UpdateShieldsFilters(shieldsEnabled);
-                    // Re-apply settings (user agent, profile-level tracking prevention, etc.)
-                    await tab.ApplyShieldsAsync(shieldsEnabled);
-                    // Re-inject new-tab data (updates "Shields on/off" status text)
+                    bool effective = GetEffectiveShieldsForUrl(tab.GetCurrentUrl());
+                    tab.UpdateShieldsFilters(effective);
+                    await tab.ApplyShieldsAsync(effective);
                     await InjectNewTabDataAsync(tab);
-                    // Reload every tab so removed/added filters take effect on in-page resources
                     tab.WebView.CoreWebView2?.Reload();
                 }
             }

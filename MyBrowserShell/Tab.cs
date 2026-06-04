@@ -15,10 +15,15 @@ namespace MyBrowserShell
         public WebView2 WebView { get; private set; }
         public TabState State { get; } = new();
         public bool IsSuspended => _isSuspended;
+        public bool EffectiveShieldsEnabled => _effectiveShieldsEnabled;
 
         private bool _isSuspended;
         private bool _privacyHandlersAttached;
-        private bool _privacyScriptAdded;
+        private bool _shieldsFiltersEnabled;
+        private string? _privacyScriptId;
+        private bool _effectiveShieldsEnabled;
+        private bool _settingsApplied;
+        private bool _appliedShields;
         private readonly Dictionary<ulong, int> _redirectCountsByNavigation = new();
         private string _lastUrl = "";
 
@@ -65,14 +70,14 @@ namespace MyBrowserShell
         }
 
 
-        public async Task InitializeAsync(string url)
+        public async Task InitializeAsync(string url, bool shieldsEnabled)
         {
             var environment = await BrowserRuntime.GetEnvironmentAsync();
             var controllerOptions = environment.CreateCoreWebView2ControllerOptions();
             controllerOptions.IsInPrivateModeEnabled = true;
             await WebView.EnsureCoreWebView2Async(environment, controllerOptions);
             AttachPrivacyHandlers();
-            await ApplyShieldsAsync(PrivacyPolicy.ShieldsEnabled);
+            await ApplyShieldsAsync(shieldsEnabled);
 
             // ⭐ FIX: Allow local HTML files
             var normalizedUrl = NormalizeNavigationUrl(url);
@@ -110,19 +115,46 @@ namespace MyBrowserShell
             if (WebView.CoreWebView2 == null)
                 return;
 
+            if (_settingsApplied && _appliedShields == shields)
+                return;
+
             var core = WebView.CoreWebView2;
             await PrivacyPolicy.ApplyProfileSettingsAsync(core.Profile, shields);
             PrivacyPolicy.ApplyBrowserSettings(core.Settings, shields);
+            _effectiveShieldsEnabled = shields;
+            _settingsApplied = true;
+            _appliedShields = shields;
 
             core.Settings.UserAgent =
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
-            if (shields && !_privacyScriptAdded)
+            UpdateShieldsFilters(shields);
+
+            if (shields && _privacyScriptId == null)
             {
-                await core.AddScriptToExecuteOnDocumentCreatedAsync(PrivacyPolicy.DocumentPrivacyScript);
-                _privacyScriptAdded = true;
+                _privacyScriptId = await core.AddScriptToExecuteOnDocumentCreatedAsync(
+                    PrivacyPolicy.DocumentPrivacyScript);
             }
+            else if (!shields && _privacyScriptId != null)
+            {
+                try
+                {
+                    core.RemoveScriptToExecuteOnDocumentCreated(_privacyScriptId);
+                }
+                catch { }
+
+                _privacyScriptId = null;
+            }
+        }
+
+        public void SetShieldsForNavigation(bool shields)
+        {
+            if (_effectiveShieldsEnabled == shields)
+                return;
+
+            _effectiveShieldsEnabled = shields;
+            UpdateShieldsFilters(shields);
         }
 
         private void AttachPrivacyHandlers()
@@ -131,17 +163,6 @@ namespace MyBrowserShell
                 return;
 
             var core = WebView.CoreWebView2;
-
-            // Always register core tracker patterns
-            foreach (var context in PrivacyPolicy.BlockableResourceContexts)
-                foreach (var pattern in PrivacyPolicy.TrackerPatterns)
-                    TryAddWebResourceRequestedFilter(core, pattern, context);
-
-            // Register shields-only patterns only when shields are currently enabled
-            if (PrivacyPolicy.ShieldsEnabled)
-                foreach (var context in PrivacyPolicy.BlockableResourceContexts)
-                    foreach (var pattern in PrivacyPolicy.ShieldsOnlyPatterns)
-                        TryAddWebResourceRequestedFilter(core, pattern, context);
 
             core.WebResourceRequested += OnWebResourceRequested;
             core.PermissionRequested += OnPermissionRequested;
@@ -154,16 +175,29 @@ namespace MyBrowserShell
         }
 
         /// <summary>
-        /// Adds or removes the shields-only resource filters when shields are toggled at runtime.
-        /// Core tracker filters are never removed.
+        /// Adds or removes shield resource filters when shields are toggled at runtime.
         /// </summary>
         public void UpdateShieldsFilters(bool shieldsEnabled)
         {
             var core = WebView?.CoreWebView2;
             if (core == null) return;
+            if (_shieldsFiltersEnabled == shieldsEnabled)
+                return;
 
             foreach (var context in PrivacyPolicy.BlockableResourceContexts)
             {
+                foreach (var pattern in PrivacyPolicy.TrackerPatterns)
+                {
+                    try
+                    {
+                        if (shieldsEnabled)
+                            core.AddWebResourceRequestedFilter(pattern, context);
+                        else
+                            core.RemoveWebResourceRequestedFilter(pattern, context);
+                    }
+                    catch { }
+                }
+
                 foreach (var pattern in PrivacyPolicy.ShieldsOnlyPatterns)
                 {
                     try
@@ -176,18 +210,8 @@ namespace MyBrowserShell
                     catch { }
                 }
             }
-        }
 
-        private static void TryAddWebResourceRequestedFilter(
-            CoreWebView2 core,
-            string uriPattern,
-            CoreWebView2WebResourceContext context)
-        {
-            try
-            {
-                core.AddWebResourceRequestedFilter(uriPattern, context);
-            }
-            catch { }
+            _shieldsFiltersEnabled = shieldsEnabled;
         }
 
         private void OnCoreNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
@@ -202,14 +226,14 @@ namespace MyBrowserShell
                 return;
             }
 
-            if (!PrivacyPolicy.ShieldsEnabled)
+            if (!_effectiveShieldsEnabled)
                 return;
 
             _redirectCountsByNavigation.TryGetValue(e.NavigationId, out int redirects);
             redirects++;
             _redirectCountsByNavigation[e.NavigationId] = redirects;
 
-            if (PrivacyPolicy.ShouldBlockRedirect(redirects))
+            if (PrivacyPolicy.ShouldBlockRedirect(redirects, _effectiveShieldsEnabled))
             {
                 State.BlockedRedirects++;
                 State.BlockedItems.Add("Redirect blocked: " + e.Uri);
@@ -225,7 +249,7 @@ namespace MyBrowserShell
 
         private void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
         {
-            if (!PrivacyPolicy.ShouldBlockPopup())
+            if (!PrivacyPolicy.ShouldBlockPopup(_effectiveShieldsEnabled))
                 return;
 
             e.Handled = true;
@@ -236,7 +260,7 @@ namespace MyBrowserShell
 
         private void OnPermissionRequested(object? sender, CoreWebView2PermissionRequestedEventArgs e)
         {
-            if (!PrivacyPolicy.ShouldDenyPermission(e.PermissionKind))
+            if (!PrivacyPolicy.ShouldDenyPermission(e.PermissionKind, _effectiveShieldsEnabled))
                 return;
 
             e.State = CoreWebView2PermissionState.Deny;
@@ -251,7 +275,7 @@ namespace MyBrowserShell
             var request = new BrowserDownloadRequestedEventArgs(
                 e.DownloadOperation.Uri,
                 e.ResultFilePath,
-                PrivacyPolicy.ShieldsEnabled);
+                _effectiveShieldsEnabled);
             if (PrivacyPolicy.ConsumeDownloadAllowOnce(e.DownloadOperation.Uri))
                 request.Cancel = false;
 
@@ -277,18 +301,37 @@ namespace MyBrowserShell
 
         private void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
         {
-            if (!PrivacyPolicy.ShouldBlockUri(e.Request.Uri, e.ResourceContext))
+            PrivacyPolicy.ApplyRequestPrivacyHeaders(e.Request, _effectiveShieldsEnabled);
+
+            string? sourceUri = TryGetHeader(e.Request.Headers, "Referer");
+            if (!PrivacyPolicy.ShouldBlockUri(
+                    e.Request.Uri,
+                    e.ResourceContext,
+                    _effectiveShieldsEnabled,
+                    sourceUri))
                 return;
 
             try
             {
                 e.Response = WebView.CoreWebView2.Environment.CreateWebResourceResponse(
-                    Stream.Null, 403, "Blocked", "Content-Type: text/plain");
+                    Stream.Null, 204, "Blocked", "Content-Type: text/plain");
                 State.BlockedTrackers++;
                 State.BlockedItems.Add("Tracker blocked: " + e.Request.Uri);
                 PrivacyStatsChanged?.Invoke(this, EventArgs.Empty);
             }
             catch { }
+        }
+
+        private static string? TryGetHeader(CoreWebView2HttpRequestHeaders headers, string name)
+        {
+            try
+            {
+                return headers.GetHeader(name);
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         public void Navigate(string url)
@@ -302,6 +345,11 @@ namespace MyBrowserShell
         }
 
         private static string? NormalizeNavigationUrl(string url)
+        {
+            return NormalizeNavigationUrlForTests(url);
+        }
+
+        internal static string? NormalizeNavigationUrlForTests(string url)
         {
             if (string.IsNullOrWhiteSpace(url))
                 return null;
