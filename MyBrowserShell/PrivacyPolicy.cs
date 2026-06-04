@@ -1,6 +1,8 @@
 #nullable enable
+using Microsoft.Web.WebView2.Core;
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace MyBrowserShell
 {
@@ -39,6 +41,19 @@ namespace MyBrowserShell
         public static IReadOnlyList<string> TrackerPatterns => TrackerPatternsLazy.Value;
         public static IReadOnlyList<string> ShieldsOnlyPatterns => ShieldsPatternsLazy.Value;
         public static IReadOnlyList<string> BlockableResourcePatterns => TrackerPatternsLazy.Value;
+
+        public static readonly CoreWebView2WebResourceContext[] BlockableResourceContexts =
+        {
+            CoreWebView2WebResourceContext.Document,
+            CoreWebView2WebResourceContext.Image,
+            CoreWebView2WebResourceContext.Media,
+            CoreWebView2WebResourceContext.Script,
+            CoreWebView2WebResourceContext.XmlHttpRequest,
+            CoreWebView2WebResourceContext.Fetch,
+            CoreWebView2WebResourceContext.EventSource,
+            CoreWebView2WebResourceContext.Ping,
+            CoreWebView2WebResourceContext.Other
+        };
 
         internal const string DocumentPrivacyScript = @"
 (function() {
@@ -199,6 +214,13 @@ namespace MyBrowserShell
 
         public static bool ShouldBlockUri(
             string uriString,
+            CoreWebView2WebResourceContext context,
+            bool shieldsEnabled,
+            string? sourceUri) =>
+            ShouldBlockUri(uriString, ToBrowserResourceKind(context), shieldsEnabled, sourceUri);
+
+        public static bool ShouldBlockUri(
+            string uriString,
             BrowserResourceKind context,
             bool shieldsEnabled,
             string? sourceUri)
@@ -327,6 +349,9 @@ namespace MyBrowserShell
         public static bool ShouldDenyPermission(BrowserPermissionKind kind) =>
             ShouldDenyPermission(kind, ShieldsEnabled);
 
+        public static bool ShouldDenyPermission(CoreWebView2PermissionKind kind, bool shieldsEnabled) =>
+            ShouldDenyPermission(ToBrowserPermissionKind(kind), shieldsEnabled);
+
         public static bool ShouldDenyPermission(BrowserPermissionKind kind, bool shieldsEnabled)
         {
             if (!shieldsEnabled)
@@ -341,5 +366,102 @@ namespace MyBrowserShell
                 _ => false
             };
         }
+
+        public static async Task ApplyProfileSettingsAsync(CoreWebView2Profile profile, bool shields)
+        {
+            profile.PreferredTrackingPreventionLevel = shields
+                ? CoreWebView2TrackingPreventionLevel.Balanced
+                : CoreWebView2TrackingPreventionLevel.Basic;
+
+            profile.IsGeneralAutofillEnabled = false;
+            profile.IsPasswordAutosaveEnabled = false;
+
+            await SetPermissionStateAsync(
+                profile,
+                CoreWebView2PermissionKind.Notifications,
+                shields ? CoreWebView2PermissionState.Deny : CoreWebView2PermissionState.Default);
+            await SetPermissionStateAsync(
+                profile,
+                CoreWebView2PermissionKind.Geolocation,
+                shields ? CoreWebView2PermissionState.Deny : CoreWebView2PermissionState.Default);
+        }
+
+        public static void ApplyBrowserSettings(CoreWebView2Settings settings, bool shields)
+        {
+            settings.IsGeneralAutofillEnabled = false;
+            settings.IsPasswordAutosaveEnabled = false;
+            settings.IsReputationCheckingRequired = !shields;
+            settings.IsStatusBarEnabled = false;
+            settings.IsWebMessageEnabled = true;
+            settings.AreDevToolsEnabled = false;
+            settings.AreBrowserAcceleratorKeysEnabled = true;
+            settings.IsSwipeNavigationEnabled = !shields;
+            settings.IsPinchZoomEnabled = true;
+            settings.IsZoomControlEnabled = false;
+        }
+
+        public static void ApplyRequestPrivacyHeaders(CoreWebView2WebResourceRequest request, bool shields)
+        {
+            if (!shields)
+                return;
+
+            TrySetHeader(request.Headers, "DNT", "1");
+            TrySetHeader(request.Headers, "Sec-GPC", "1");
+        }
+
+        public static CoreWebView2BrowsingDataKinds AllBrowsingDataKinds { get; } =
+            CoreWebView2BrowsingDataKinds.AllSite |
+            CoreWebView2BrowsingDataKinds.Cookies |
+            CoreWebView2BrowsingDataKinds.DiskCache |
+            CoreWebView2BrowsingDataKinds.DownloadHistory |
+            CoreWebView2BrowsingDataKinds.BrowsingHistory |
+            CoreWebView2BrowsingDataKinds.GeneralAutofill |
+            CoreWebView2BrowsingDataKinds.PasswordAutosave |
+            CoreWebView2BrowsingDataKinds.AllDomStorage |
+            CoreWebView2BrowsingDataKinds.ServiceWorkers;
+
+        private static async Task SetPermissionStateAsync(
+            CoreWebView2Profile profile,
+            CoreWebView2PermissionKind kind,
+            CoreWebView2PermissionState state)
+        {
+            try
+            {
+                await profile.SetPermissionStateAsync(kind, "*", state);
+            }
+            catch { }
+        }
+
+        private static void TrySetHeader(CoreWebView2HttpRequestHeaders headers, string name, string value)
+        {
+            try
+            {
+                headers.SetHeader(name, value);
+            }
+            catch { }
+        }
+
+        private static BrowserResourceKind ToBrowserResourceKind(CoreWebView2WebResourceContext context) =>
+            context switch
+            {
+                CoreWebView2WebResourceContext.Image => BrowserResourceKind.Image,
+                CoreWebView2WebResourceContext.Media => BrowserResourceKind.Media,
+                CoreWebView2WebResourceContext.Script => BrowserResourceKind.Script,
+                CoreWebView2WebResourceContext.XmlHttpRequest => BrowserResourceKind.XmlHttpRequest,
+                CoreWebView2WebResourceContext.Fetch => BrowserResourceKind.Fetch,
+                CoreWebView2WebResourceContext.EventSource => BrowserResourceKind.EventSource,
+                CoreWebView2WebResourceContext.Ping => BrowserResourceKind.Ping,
+                _ => BrowserResourceKind.Other
+            };
+
+        private static BrowserPermissionKind ToBrowserPermissionKind(CoreWebView2PermissionKind kind) =>
+            kind switch
+            {
+                CoreWebView2PermissionKind.Notifications => BrowserPermissionKind.Notifications,
+                CoreWebView2PermissionKind.Geolocation => BrowserPermissionKind.Geolocation,
+                CoreWebView2PermissionKind.Camera => BrowserPermissionKind.Camera,
+                CoreWebView2PermissionKind.Microphone => BrowserPermissionKind.Microphone,
+                _ => BrowserPermissionKind.Other
+            };
     }
 }

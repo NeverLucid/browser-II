@@ -1721,7 +1721,7 @@ namespace MyBrowserShell
                     if (!string.IsNullOrWhiteSpace(item.ResultPath))
                         menuItem.DropDownItems.Add("Show in folder", null, (s, e) => ShowInFolder(item.ResultPath));
                     if (item.CanCancel)
-                        menuItem.DropDownItems.Add("Cancel", null, (s, e) => item.Operation?.Cancel());
+                        menuItem.DropDownItems.Add("Cancel", null, (s, e) => item.CancelAction?.Invoke());
                     if (!string.IsNullOrWhiteSpace(item.SourceUrl))
                         menuItem.DropDownItems.Add("Retry", null, (s, e) => CurrentTab?.Navigate(item.SourceUrl));
                     if (!string.IsNullOrWhiteSpace(item.FailureReason))

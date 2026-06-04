@@ -19,7 +19,7 @@ namespace MyBrowserShell
                 FileName = Path.GetFileName(resultPath),
                 SourceUrl = sourceUrl,
                 ResultPath = resultPath,
-                Operation = operation,
+                CancelAction = operation.Cancel,
                 Status = operation.State.ToString()
             };
 
@@ -36,9 +36,15 @@ namespace MyBrowserShell
             {
                 item.Status = operation.State.ToString();
                 if (operation.State == CoreWebView2DownloadState.Completed)
+                {
                     item.CompletedAtUtc = DateTime.UtcNow;
+                    item.CancelAction = null;
+                }
                 else if (operation.State == CoreWebView2DownloadState.Interrupted)
+                {
                     item.FailureReason = operation.InterruptReason.ToString();
+                    item.CancelAction = null;
+                }
             };
 
             return item;
