@@ -16,20 +16,19 @@ namespace MyBrowserShell
     {
         public const int DefaultSocksPort = 9050;
 
-        // Common locations for tor.exe — checked in order
+        // Prefer app-local Tor so Tor mode does not require Tor Browser or system Tor.
         private static readonly string[] TorExeCandidates =
         {
-            // Tor Browser (default install)
+            Path.Combine(AppContext.BaseDirectory, "Tor", "tor.exe"),
+            Path.Combine(AppContext.BaseDirectory, "tor", "tor.exe"),
+            Path.Combine(AppContext.BaseDirectory, "tor.exe"),
+            Path.Combine(AppContext.BaseDirectory, "Browser", "TorBrowser", "Tor", "tor.exe"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "Tor Browser", "Browser", "TorBrowser", "Tor", "tor.exe"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                 "Tor Browser", "Browser", "TorBrowser", "Tor", "tor.exe"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
                 "Tor Browser", "Browser", "TorBrowser", "Tor", "tor.exe"),
-            // Standalone / portable tor.exe next to the app
-            Path.Combine(AppContext.BaseDirectory, "tor", "tor.exe"),
-            Path.Combine(AppContext.BaseDirectory, "Tor", "tor.exe"),
-            Path.Combine(AppContext.BaseDirectory, "tor.exe"),
         };
 
         private static Process? _torProcess;
@@ -45,18 +44,15 @@ namespace MyBrowserShell
             await _lock.WaitAsync();
             try
             {
-                // Already up?
                 if (_started && IsPortOpen(DefaultSocksPort))
                     return true;
 
-                // Maybe Tor Browser / system Tor is already running
                 if (IsPortOpen(DefaultSocksPort))
                 {
                     _started = true;
                     return true;
                 }
 
-                // Try to launch tor.exe ourselves
                 string? torPath = FindTorExe();
                 if (torPath == null)
                 {
@@ -69,11 +65,11 @@ namespace MyBrowserShell
 
                 var psi = new ProcessStartInfo(torPath)
                 {
-                    Arguments        = $"--SocksPort {DefaultSocksPort} --DataDirectory \"{torDataDir}\"",
-                    CreateNoWindow   = true,
-                    UseShellExecute  = false,
+                    Arguments = $"--SocksPort {DefaultSocksPort} --DataDirectory \"{torDataDir}\"",
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
                     RedirectStandardOutput = true,
-                    RedirectStandardError  = true,
+                    RedirectStandardError = true,
                 };
 
                 _torProcess = Process.Start(psi);
@@ -85,7 +81,6 @@ namespace MyBrowserShell
                     return false;
                 }
 
-                // Wait up to 30 s for the SOCKS port to open
                 var deadline = DateTime.UtcNow.AddSeconds(30);
                 while (DateTime.UtcNow < deadline)
                 {
@@ -94,6 +89,7 @@ namespace MyBrowserShell
                         _started = true;
                         return true;
                     }
+
                     await Task.Delay(500);
                 }
 
@@ -127,13 +123,20 @@ namespace MyBrowserShell
                 tcp.Connect("127.0.0.1", port);
                 return true;
             }
-            catch { return false; }
+            catch
+            {
+                return false;
+            }
         }
 
         private static string? FindTorExe()
         {
             foreach (var path in TorExeCandidates)
-                if (File.Exists(path)) return path;
+            {
+                if (File.Exists(path))
+                    return path;
+            }
+
             return null;
         }
 
@@ -141,11 +144,14 @@ namespace MyBrowserShell
         {
             MessageBox.Show(
                 "Could not find tor.exe.\n\n" +
-                "Please install Tor Browser (https://www.torproject.org/download/) " +
-                "or place tor.exe in one of these locations:\n\n" +
-                $"• {Path.Combine(AppContext.BaseDirectory, "tor", "tor.exe")}\n" +
-                $"• {Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tor Browser", "Browser", "TorBrowser", "Tor", "tor.exe")}\n" +
-                $"• {Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Tor Browser", "Browser", "TorBrowser", "Tor", "tor.exe")}",
+                "Tor mode does not require Tor Browser to be installed, but the app still needs a Tor client binary to route traffic through the Tor network.\n\n" +
+                "To bundle Tor with this app, place a portable Tor build here and rebuild/publish:\n\n" +
+                "- " + Path.Combine("MyBrowserShell", "Tor", "tor.exe") + "\n\n" +
+                "At runtime, the app checks these app-local paths first:\n\n" +
+                "- " + Path.Combine(AppContext.BaseDirectory, "Tor", "tor.exe") + "\n" +
+                "- " + Path.Combine(AppContext.BaseDirectory, "tor", "tor.exe") + "\n" +
+                "- " + Path.Combine(AppContext.BaseDirectory, "tor.exe") + "\n\n" +
+                "Installing Tor Browser still works as a fallback.",
                 "Tor Not Found",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);

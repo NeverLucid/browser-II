@@ -18,6 +18,12 @@
   <Content Include="NewTab.html">
     <CopyToOutputDirectory>Always</CopyToOutputDirectory>
   </Content>
+  <Content Include="Tor\**\*">
+    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+  </Content>
+  <Content Include="tor\**\*">
+    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+  </Content>
 </ItemGroup>
 
 </Project>
