@@ -35,20 +35,36 @@ namespace MyBrowserShell
         internal static readonly string TorUserDataFolder =
             Path.Combine(Path.GetTempPath(), "MyBrowserShell", "TorWebView2");
 
+        // Cached per SOCKS port so the same environment is reused within one session.
+        private static int _cachedTorPort;
         private static Task<CoreWebView2Environment>? _torEnvironmentTask;
 
+        /// <summary>
+        /// Returns (or creates) a WebView2 environment that routes all traffic through
+        /// the Tor SOCKS5 proxy on <see cref="TorProxy.ActiveSocksPort"/>.
+        /// Must be called only after <see cref="TorProxy.EnsureRunningAsync"/> succeeds.
+        /// </summary>
         public static Task<CoreWebView2Environment> GetTorEnvironmentAsync()
         {
+            int port = TorProxy.ActiveSocksPort;
+
+            // If the port changed (e.g. a new Tor instance on a different port) drop the old cache.
+            if (_torEnvironmentTask != null && _cachedTorPort != port)
+                _torEnvironmentTask = null;
+
+            _cachedTorPort = port;
             return _torEnvironmentTask ??= CoreWebView2Environment.CreateAsync(
                 browserExecutableFolder: null,
                 userDataFolder: TorUserDataFolder,
-                options: CreateTorEnvironmentOptions());
+                options: CreateTorEnvironmentOptions(port));
         }
 
-        private static CoreWebView2EnvironmentOptions CreateTorEnvironmentOptions()
+        private static CoreWebView2EnvironmentOptions CreateTorEnvironmentOptions(int socksPort)
         {
+            // Route all traffic (including DNS) through the local Tor SOCKS5 proxy.
+            // --host-resolver-rules prevents hostname leaks outside of Tor.
             string torArgs = AdditionalBrowserArguments +
-                $" --proxy-server=socks5://127.0.0.1:{TorProxy.DefaultSocksPort}" +
+                $" --proxy-server=socks5://127.0.0.1:{socksPort}" +
                 " --host-resolver-rules=\"MAP * ~NOTFOUND , EXCLUDE 127.0.0.1\"";
 
             return new CoreWebView2EnvironmentOptions
