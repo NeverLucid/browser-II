@@ -90,7 +90,7 @@ namespace MyBrowserShell
                 }
 
                 // Wait up to 45 seconds for the SOCKS5 port to become available.
-                var deadline = DateTime.UtcNow.AddSeconds(45);
+                var deadline = DateTime.UtcNow.AddSeconds(90); // first bootstrap can take 60-90 s
                 while (DateTime.UtcNow < deadline)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -116,8 +116,8 @@ namespace MyBrowserShell
                 Shutdown();
 
                 const string timeoutMessage =
-                    "Tor started but the SOCKS5 port did not become available within 45 seconds.\n" +
-                    "Check that Tor is not blocked by your firewall.";
+                    "Tor started but the SOCKS5 port did not become available within 90 seconds.\n" +
+                    "Check that Tor is not blocked by your firewall, and that your internet connection is active.";
                 ShowTorErrorDialog(timeoutMessage);
                 return TorProxyResult.Failure(timeoutMessage);
             }
@@ -164,7 +164,17 @@ namespace MyBrowserShell
             try
             {
                 using var tcp = new TcpClient();
-                tcp.Connect(IPAddress.Loopback, port);
+                // Use an explicit timeout — default TcpClient.Connect() can block for 20-30 s
+                // on some systems, which would exhaust the 45 s startup window in just 1-2 tries.
+                // 150 ms is more than enough for a loopback connection.
+                var result = tcp.BeginConnect(IPAddress.Loopback, port, null, null);
+                bool connected = result.AsyncWaitHandle.WaitOne(TimeSpan.FromMilliseconds(150));
+                if (!connected)
+                {
+                    tcp.Close();
+                    return false;
+                }
+                tcp.EndConnect(result);
                 return true;
             }
             catch
