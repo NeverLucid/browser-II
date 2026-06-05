@@ -11,7 +11,8 @@ using System.Windows.Forms;
 namespace MyBrowserShell
 {
     /// <summary>
-    /// Locates, installs, or launches the Tor daemon and waits until its SOCKS5 port is ready.
+    /// Manages the lifetime of the Tor SOCKS5 proxy process.
+    /// Call <see cref="EnsureRunningAsync"/> before creating a Tor WebView2 environment.
     /// </summary>
     internal static class TorProxy
     {
@@ -23,6 +24,17 @@ namespace MyBrowserShell
         private static string? _torExePath;
         private static readonly SemaphoreSlim _lock = new(1, 1);
 
+        /// <summary>
+        /// The SOCKS5 port currently in use.
+        /// Falls back to <see cref="DefaultSocksPort"/> when Tor is not running yet.
+        /// BrowserRuntime reads this to build the proxy argument.
+        /// </summary>
+        public static int ActiveSocksPort => _socksPort > 0 ? _socksPort : DefaultSocksPort;
+
+        /// <summary>
+        /// Ensures the Tor daemon is running and its SOCKS5 port is accepting connections.
+        /// Safe to call multiple times; re-uses the existing process when already running.
+        /// </summary>
         public static async Task<TorProxyResult> EnsureRunningAsync(
             Action<TorBootstrapProgress>? progress = null,
             CancellationToken cancellationToken = default)
@@ -30,11 +42,11 @@ namespace MyBrowserShell
             await _lock.WaitAsync(cancellationToken);
             try
             {
+                // Re-use existing process if the port is still open.
                 if (_started && _socksPort > 0 && IsPortOpen(_socksPort))
-                {
                     return TorProxyResult.Ok(_socksPort, _torExePath ?? "Tor");
-                }
 
+                // An external Tor is already running on the default port — use it.
                 if (IsPortOpen(DefaultSocksPort))
                 {
                     _started = true;
@@ -43,6 +55,7 @@ namespace MyBrowserShell
                     return TorProxyResult.Ok(_socksPort, _torExePath);
                 }
 
+                // Resolve tor.exe (download + verify if needed).
                 var componentManager = new TorComponentManager();
                 var component = await componentManager.ResolveAsync(progress, cancellationToken);
                 if (!component.IsSuccess || component.TorExePath == null)
@@ -53,7 +66,8 @@ namespace MyBrowserShell
                 }
 
                 int socksPort = SelectAvailableSocksPort();
-                string torDataDir = Path.Combine(Path.GetTempPath(), "MyBrowserShell", "TorData", socksPort.ToString());
+                string torDataDir = Path.Combine(
+                    Path.GetTempPath(), "MyBrowserShell", "TorData", socksPort.ToString());
                 Directory.CreateDirectory(torDataDir);
 
                 progress?.Invoke(new TorBootstrapProgress("Connecting to Tor", "Starting the Tor network proxy..."));
@@ -75,6 +89,7 @@ namespace MyBrowserShell
                     return TorProxyResult.Failure(message);
                 }
 
+                // Wait up to 45 seconds for the SOCKS5 port to become available.
                 var deadline = DateTime.UtcNow.AddSeconds(45);
                 while (DateTime.UtcNow < deadline)
                 {
@@ -82,7 +97,7 @@ namespace MyBrowserShell
 
                     if (_torProcess.HasExited)
                     {
-                        string message = "Tor exited before the SOCKS5 proxy became available.";
+                        const string message = "Tor exited before the SOCKS5 proxy became available.";
                         ShowTorErrorDialog(message);
                         return TorProxyResult.Failure(message);
                     }
@@ -108,20 +123,13 @@ namespace MyBrowserShell
             }
             catch (OperationCanceledException)
             {
-                const string message = "Tor startup was cancelled.";
-                return TorProxyResult.Failure(message);
+                return TorProxyResult.Failure("Tor startup was cancelled.");
             }
             finally
             {
                 _lock.Release();
             }
         }
-
-        /// <summary>
-        /// The SOCKS5 port currently in use. 0 if Tor is not running.
-        /// BrowserRuntime reads this to build the proxy argument.
-        /// </summary>
-        public static int ActiveSocksPort => _socksPort > 0 ? _socksPort : DefaultSocksPort;
 
         public static void Shutdown()
         {
@@ -132,10 +140,9 @@ namespace MyBrowserShell
             _torExePath = null;
         }
 
+        // Exposed for unit tests.
         internal static int SelectAvailableSocksPortForTests(params int[] preferredPorts)
-        {
-            return SelectAvailableSocksPort(preferredPorts);
-        }
+            => SelectAvailableSocksPort(preferredPorts);
 
         private static int SelectAvailableSocksPort(params int[] preferredPorts)
         {
@@ -188,6 +195,7 @@ namespace MyBrowserShell
         public static TorProxyResult Failure(string errorMessage) =>
             new(false, 0, null, errorMessage);
 
+        /// <summary>Allows <c>bool ok = await TorProxy.EnsureRunningAsync();</c></summary>
         public static implicit operator bool(TorProxyResult r) => r.Success;
     }
 }
