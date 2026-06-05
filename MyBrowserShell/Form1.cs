@@ -1954,7 +1954,15 @@ namespace MyBrowserShell
                 form.Close();
             };
 
-            actions.Controls.AddRange(new Control[] { close, reload, clear, siteToggle });
+            var globalToggle = CreateReportButton(shieldsEnabled ? "Turn shields off" : "Turn shields on");
+            globalToggle.Enabled = !isTorWindow;
+            globalToggle.Click += async (s, e) =>
+            {
+                await ToggleShieldsAsync();
+                form.Close();
+            };
+
+            actions.Controls.AddRange(new Control[] { close, reload, clear, siteToggle, globalToggle });
 
             layout.Controls.Add(title, 0, 0);
             layout.Controls.Add(summary, 0, 1);
@@ -2026,7 +2034,6 @@ namespace MyBrowserShell
         private async Task ApplyShieldsToTabAsync(Tab tab, bool reload)
         {
             bool effective = GetEffectiveShieldsForUrl(tab.GetCurrentUrl());
-            tab.SetShieldsForNavigation(effective);
             await tab.ApplyShieldsAsync(effective);
             await InjectNewTabDataAsync(tab);
 
@@ -2455,7 +2462,6 @@ namespace MyBrowserShell
                 if (page.Tag is Tab tab)
                 {
                     bool effective = GetEffectiveShieldsForUrl(tab.GetCurrentUrl());
-                    tab.UpdateShieldsFilters(effective);
                     await tab.ApplyShieldsAsync(effective);
                     await InjectNewTabDataAsync(tab);
                     tab.WebView.CoreWebView2?.Reload();

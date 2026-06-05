@@ -115,21 +115,21 @@ namespace MyBrowserShell
             if (WebView.CoreWebView2 == null)
                 return;
 
+            _effectiveShieldsEnabled = shields;
+            UpdateShieldsFilters(shields);
+
             if (_settingsApplied && _appliedShields == shields)
                 return;
 
             var core = WebView.CoreWebView2;
             await PrivacyPolicy.ApplyProfileSettingsAsync(core.Profile, shields);
             PrivacyPolicy.ApplyBrowserSettings(core.Settings, shields);
-            _effectiveShieldsEnabled = shields;
             _settingsApplied = true;
             _appliedShields = shields;
 
             core.Settings.UserAgent =
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-
-            UpdateShieldsFilters(shields);
 
             if (shields && _privacyScriptId == null)
             {

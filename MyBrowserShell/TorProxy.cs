@@ -2,6 +2,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,62 +11,56 @@ using System.Windows.Forms;
 namespace MyBrowserShell
 {
     /// <summary>
-    /// Locates or launches the Tor daemon and waits until its SOCKS5 port is ready.
+    /// Locates, installs, or launches the Tor daemon and waits until its SOCKS5 port is ready.
     /// </summary>
     internal static class TorProxy
     {
         public const int DefaultSocksPort = 9050;
 
-        // Prefer app-local Tor so Tor mode does not require Tor Browser or system Tor.
-        private static readonly string[] TorExeCandidates =
-        {
-            Path.Combine(AppContext.BaseDirectory, "Tor", "tor.exe"),
-            Path.Combine(AppContext.BaseDirectory, "tor", "tor.exe"),
-            Path.Combine(AppContext.BaseDirectory, "tor.exe"),
-            Path.Combine(AppContext.BaseDirectory, "Browser", "TorBrowser", "Tor", "tor.exe"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Tor Browser", "Browser", "TorBrowser", "Tor", "tor.exe"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                "Tor Browser", "Browser", "TorBrowser", "Tor", "tor.exe"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-                "Tor Browser", "Browser", "TorBrowser", "Tor", "tor.exe"),
-        };
-
         private static Process? _torProcess;
         private static bool _started;
+        private static int _socksPort;
+        private static string? _torExePath;
         private static readonly SemaphoreSlim _lock = new(1, 1);
 
-        /// <summary>
-        /// Ensures the Tor SOCKS5 proxy is running on <see cref="DefaultSocksPort"/>.
-        /// Returns true on success. Shows a user-friendly error dialog on failure.
-        /// </summary>
-        public static async Task<bool> EnsureRunningAsync()
+        public static async Task<TorProxyResult> EnsureRunningAsync(
+            Action<TorBootstrapProgress>? progress = null,
+            CancellationToken cancellationToken = default)
         {
-            await _lock.WaitAsync();
+            await _lock.WaitAsync(cancellationToken);
             try
             {
-                if (_started && IsPortOpen(DefaultSocksPort))
-                    return true;
+                if (_started && _socksPort > 0 && IsPortOpen(_socksPort))
+                {
+                    return TorProxyResult.Success(_socksPort, _torExePath ?? "Tor");
+                }
 
                 if (IsPortOpen(DefaultSocksPort))
                 {
                     _started = true;
-                    return true;
+                    _socksPort = DefaultSocksPort;
+                    _torExePath = "Existing Tor proxy on 127.0.0.1:" + DefaultSocksPort;
+                    return TorProxyResult.Success(_socksPort, _torExePath);
                 }
 
-                string? torPath = FindTorExe();
-                if (torPath == null)
+                var componentManager = new TorComponentManager();
+                var component = await componentManager.ResolveAsync(progress, cancellationToken);
+                if (!component.Success || component.TorExePath == null)
                 {
-                    ShowTorNotFoundDialog();
-                    return false;
+                    string message = component.ErrorMessage ?? "Tor could not be found or installed.";
+                    ShowTorErrorDialog(message);
+                    return TorProxyResult.Failure(message);
                 }
 
-                string torDataDir = Path.Combine(Path.GetTempPath(), "MyBrowserShell", "TorData");
+                int socksPort = SelectAvailableSocksPort();
+                string torDataDir = Path.Combine(Path.GetTempPath(), "MyBrowserShell", "TorData", socksPort.ToString());
                 Directory.CreateDirectory(torDataDir);
 
-                var psi = new ProcessStartInfo(torPath)
+                progress?.Invoke(new TorBootstrapProgress("Connecting to Tor", "Starting the Tor network proxy..."));
+
+                var psi = new ProcessStartInfo(component.TorExePath)
                 {
-                    Arguments = $"--SocksPort {DefaultSocksPort} --DataDirectory \"{torDataDir}\"",
+                    Arguments = $"--SocksPort 127.0.0.1:{socksPort} --DataDirectory \"{torDataDir}\"",
                     CreateNoWindow = true,
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
@@ -75,32 +70,46 @@ namespace MyBrowserShell
                 _torProcess = Process.Start(psi);
                 if (_torProcess == null)
                 {
-                    MessageBox.Show(
-                        "Failed to start the Tor process.",
-                        "Tor Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return false;
+                    const string message = "Failed to start the Tor process.";
+                    ShowTorErrorDialog(message);
+                    return TorProxyResult.Failure(message);
                 }
 
-                var deadline = DateTime.UtcNow.AddSeconds(30);
+                var deadline = DateTime.UtcNow.AddSeconds(45);
                 while (DateTime.UtcNow < deadline)
                 {
-                    if (IsPortOpen(DefaultSocksPort))
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (_torProcess.HasExited)
                     {
-                        _started = true;
-                        return true;
+                        string message = "Tor exited before the SOCKS5 proxy became available.";
+                        ShowTorErrorDialog(message);
+                        return TorProxyResult.Failure(message);
                     }
 
-                    await Task.Delay(500);
+                    if (IsPortOpen(socksPort))
+                    {
+                        _started = true;
+                        _socksPort = socksPort;
+                        _torExePath = component.TorExePath;
+                        return TorProxyResult.Success(socksPort, component.TorExePath);
+                    }
+
+                    await Task.Delay(500, cancellationToken);
                 }
 
-                _torProcess.Kill(true);
-                _torProcess = null;
+                Shutdown();
 
-                MessageBox.Show(
-                    "Tor started but the SOCKS5 port did not become available within 30 seconds.\n" +
-                    "Check that Tor is not blocked by your firewall.",
-                    "Tor Timeout", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return false;
+                const string timeoutMessage =
+                    "Tor started but the SOCKS5 port did not become available within 45 seconds.\n" +
+                    "Check that Tor is not blocked by your firewall.";
+                ShowTorErrorDialog(timeoutMessage);
+                return TorProxyResult.Failure(timeoutMessage);
+            }
+            catch (OperationCanceledException)
+            {
+                const string message = "Tor startup was cancelled.";
+                return TorProxyResult.Failure(message);
             }
             finally
             {
@@ -113,6 +122,28 @@ namespace MyBrowserShell
             try { _torProcess?.Kill(true); } catch { }
             _torProcess = null;
             _started = false;
+            _socksPort = 0;
+            _torExePath = null;
+        }
+
+        internal static int SelectAvailableSocksPortForTests(params int[] preferredPorts)
+        {
+            return SelectAvailableSocksPort(preferredPorts);
+        }
+
+        private static int SelectAvailableSocksPort(params int[] preferredPorts)
+        {
+            foreach (int port in preferredPorts)
+            {
+                if (!IsPortOpen(port))
+                    return port;
+            }
+
+            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            int selectedPort = ((IPEndPoint)listener.LocalEndpoint).Port;
+            listener.Stop();
+            return selectedPort;
         }
 
         private static bool IsPortOpen(int port)
@@ -120,7 +151,7 @@ namespace MyBrowserShell
             try
             {
                 using var tcp = new TcpClient();
-                tcp.Connect("127.0.0.1", port);
+                tcp.Connect(IPAddress.Loopback, port);
                 return true;
             }
             catch
@@ -129,32 +160,26 @@ namespace MyBrowserShell
             }
         }
 
-        private static string? FindTorExe()
-        {
-            foreach (var path in TorExeCandidates)
-            {
-                if (File.Exists(path))
-                    return path;
-            }
-
-            return null;
-        }
-
-        private static void ShowTorNotFoundDialog()
+        private static void ShowTorErrorDialog(string message)
         {
             MessageBox.Show(
-                "Could not find tor.exe.\n\n" +
-                "Tor mode does not require Tor Browser to be installed, but the app still needs a Tor client binary to route traffic through the Tor network.\n\n" +
-                "To bundle Tor with this app, place a portable Tor build here and rebuild/publish:\n\n" +
-                "- " + Path.Combine("MyBrowserShell", "Tor", "tor.exe") + "\n\n" +
-                "At runtime, the app checks these app-local paths first:\n\n" +
-                "- " + Path.Combine(AppContext.BaseDirectory, "Tor", "tor.exe") + "\n" +
-                "- " + Path.Combine(AppContext.BaseDirectory, "tor", "tor.exe") + "\n" +
-                "- " + Path.Combine(AppContext.BaseDirectory, "tor.exe") + "\n\n" +
-                "Installing Tor Browser still works as a fallback.",
-                "Tor Not Found",
+                message,
+                "Tor Error",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
         }
+    }
+
+    internal sealed record TorProxyResult(
+        bool Success,
+        int SocksPort,
+        string? TorExePath,
+        string? ErrorMessage)
+    {
+        public static TorProxyResult Success(int socksPort, string torExePath) =>
+            new(true, socksPort, torExePath, null);
+
+        public static TorProxyResult Failure(string errorMessage) =>
+            new(false, 0, null, errorMessage);
     }
 }
