@@ -51,7 +51,7 @@ jobs:
 
     # Run smoke tests (console exe runner, not a test framework project)
     - name: Run smoke tests
-      run: dotnet run --project MyBrowserShell.SmokeTests\MyBrowserShell.SmokeTests.csproj --configuration $env:Configuration --no-build
+      run: MyBrowserShell.SmokeTests\bin\$env:Configuration\net8.0-windows\MyBrowserShell.SmokeTests.exe
       env:
         Configuration: ${{ matrix.configuration }}
 
