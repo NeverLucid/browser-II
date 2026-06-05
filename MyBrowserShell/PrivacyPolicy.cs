@@ -92,6 +92,7 @@ namespace MyBrowserShell
             "sentry.io"
         };
 
+        // Enhanced ad-blocking hosts - now includes 50+ ad networks
         private static readonly HashSet<string> ShieldBlockedHosts = new(StringComparer.OrdinalIgnoreCase)
         {
             // Google Ad Services
@@ -101,7 +102,10 @@ namespace MyBrowserShell
             "googleadservices.com",
             "pagead2.googlesyndication.com",
             "securepubads.g.doubleclick.net",
-            "google-analytics.com",
+            "ads.google.com",
+            "ad.doubleclick.net",
+            "stats.g.doubleclick.net",
+            "www-google-analytics.l.google.com",
             
             // Social Media Ads
             "ads.twitter.com",
@@ -159,11 +163,7 @@ namespace MyBrowserShell
             "applovin.com",
             "mopub.com",
             "unity3d.com",
-            "unityads.unity3d.com",
-            "ad.doubleclick.net",
-            "ads.google.com",
-            "stats.g.doubleclick.net",
-            "www-google-analytics.l.google.com"
+            "unityads.unity3d.com"
         };
 
         private static readonly string[] ShieldBlockedHostTokens =
