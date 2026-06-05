@@ -1,66 +1,62 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace MyBrowserShell
 {
+    /// <summary>
+    /// Helpers for per-site shield exceptions (stored as a list of host strings in BrowserSettings).
+    /// </summary>
     internal static class SiteShieldPolicy
     {
-        public static string? NormalizeHost(string? urlOrHost)
+        /// <summary>
+        /// Extracts and normalises the hostname from a URL string.
+        /// Returns null if the URL is null, empty, or not a valid http/https URL.
+        /// </summary>
+        public static string? NormalizeHost(string? url)
         {
-            if (string.IsNullOrWhiteSpace(urlOrHost))
+            if (string.IsNullOrWhiteSpace(url))
                 return null;
 
-            string value = urlOrHost.Trim();
-            if (Uri.TryCreate(value, UriKind.Absolute, out var uri))
-            {
-                if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
-                    return null;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                return null;
 
-                value = uri.Host;
-            }
+            if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+                return null;
 
-            value = value.Trim().Trim('.').ToLowerInvariant();
-            if (value.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
-                value = value[4..];
+            // Strip "www." prefix so that exceptions apply to the bare domain.
+            string host = uri.Host.ToLowerInvariant();
+            if (host.StartsWith("www.", StringComparison.Ordinal))
+                host = host.Substring(4);
 
-            return string.IsNullOrWhiteSpace(value) ? null : value;
+            return string.IsNullOrEmpty(host) ? null : host;
         }
 
-        public static bool IsHostExcepted(string? urlOrHost, IEnumerable<string>? disabledHosts)
+        /// <summary>
+        /// Returns true if <paramref name="host"/> (or null) is in the exceptions list.
+        /// </summary>
+        public static bool IsHostExcepted(string? host, List<string> exceptions)
         {
-            string? host = NormalizeHost(urlOrHost);
-            if (host == null || disabledHosts == null)
+            if (host == null || exceptions == null || exceptions.Count == 0)
                 return false;
 
-            foreach (var entry in disabledHosts)
-            {
-                string? disabled = NormalizeHost(entry);
-                if (disabled == null)
-                    continue;
-
-                if (host.Equals(disabled, StringComparison.OrdinalIgnoreCase) ||
-                    host.EndsWith("." + disabled, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-
-            return false;
+            return exceptions.Contains(host);
         }
 
-        public static void SetException(List<string> disabledHosts, string host, bool disabled)
+        /// <summary>
+        /// Adds or removes <paramref name="host"/> from the exceptions list.
+        /// </summary>
+        public static void SetException(List<string> exceptions, string host, bool disabled)
         {
-            string? normalized = NormalizeHost(host);
-            if (normalized == null)
-                return;
-
-            disabledHosts.RemoveAll(item =>
-                NormalizeHost(item)?.Equals(normalized, StringComparison.OrdinalIgnoreCase) == true);
-
             if (disabled)
-                disabledHosts.Add(normalized);
-
-            disabledHosts.Sort(StringComparer.OrdinalIgnoreCase);
+            {
+                if (!exceptions.Contains(host))
+                    exceptions.Add(host);
+            }
+            else
+            {
+                exceptions.Remove(host);
+            }
         }
     }
 }
