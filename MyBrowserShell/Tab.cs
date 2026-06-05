@@ -26,6 +26,8 @@ namespace MyBrowserShell
         private bool _appliedShields;
         private readonly Dictionary<ulong, int> _redirectCountsByNavigation = new();
         private string _lastUrl = "";
+        private bool? _lastDarkMode;         // cache: skip dark-mode script injection when unchanged
+        private bool _profileSettingsDone;   // cache: skip async profile settings after first apply
 
         public event EventHandler? PrivacyStatsChanged;
         public event EventHandler<BrowserDownloadRequestedEventArgs>? DownloadRequested;
@@ -122,7 +124,15 @@ namespace MyBrowserShell
                 return;
 
             var core = WebView.CoreWebView2;
-            await PrivacyPolicy.ApplyProfileSettingsAsync(core.Profile, shields);
+
+            // Profile-level settings (async, ~2 round trips to the browser process) only
+            // need to run once — they are stored on the profile, not reset per navigation.
+            if (!_profileSettingsDone)
+            {
+                await PrivacyPolicy.ApplyProfileSettingsAsync(core.Profile, shields);
+                _profileSettingsDone = true;
+            }
+
             PrivacyPolicy.ApplyBrowserSettings(core.Settings, shields);
             _settingsApplied = true;
             _appliedShields = shields;
@@ -473,6 +483,12 @@ namespace MyBrowserShell
         {
             if (WebView.CoreWebView2 == null)
                 return;
+
+            // Skip the ExecuteScript round-trip when dark mode state hasn't changed
+            if (_lastDarkMode.HasValue && _lastDarkMode.Value == enabled)
+                return;
+
+            _lastDarkMode = enabled;
 
             const string css = @"
 html, body {
