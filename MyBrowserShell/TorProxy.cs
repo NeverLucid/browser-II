@@ -32,7 +32,7 @@ namespace MyBrowserShell
             {
                 if (_started && _socksPort > 0 && IsPortOpen(_socksPort))
                 {
-                    return TorProxyResult.Success(_socksPort, _torExePath ?? "Tor");
+                    return TorProxyResult.Ok(_socksPort, _torExePath ?? "Tor");
                 }
 
                 if (IsPortOpen(DefaultSocksPort))
@@ -40,12 +40,12 @@ namespace MyBrowserShell
                     _started = true;
                     _socksPort = DefaultSocksPort;
                     _torExePath = "Existing Tor proxy on 127.0.0.1:" + DefaultSocksPort;
-                    return TorProxyResult.Success(_socksPort, _torExePath);
+                    return TorProxyResult.Ok(_socksPort, _torExePath);
                 }
 
                 var componentManager = new TorComponentManager();
                 var component = await componentManager.ResolveAsync(progress, cancellationToken);
-                if (!component.IsSuccess || component.TorExePath == null)
+                if (!component.Success || component.TorExePath == null)
                 {
                     string message = component.ErrorMessage ?? "Tor could not be found or installed.";
                     ShowTorErrorDialog(message);
@@ -92,7 +92,7 @@ namespace MyBrowserShell
                         _started = true;
                         _socksPort = socksPort;
                         _torExePath = component.TorExePath;
-                        return TorProxyResult.Success(socksPort, component.TorExePath);
+                        return TorProxyResult.Ok(socksPort, component.TorExePath);
                     }
 
                     await Task.Delay(500, cancellationToken);
@@ -171,15 +171,17 @@ namespace MyBrowserShell
     }
 
     internal sealed record TorProxyResult(
-        bool IsSuccess,
+        bool Success,
         int SocksPort,
         string? TorExePath,
         string? ErrorMessage)
     {
-        public static TorProxyResult Success(int socksPort, string torExePath) =>
+        public static TorProxyResult Ok(int socksPort, string torExePath) =>
             new(true, socksPort, torExePath, null);
 
         public static TorProxyResult Failure(string errorMessage) =>
             new(false, 0, null, errorMessage);
+
+        public static implicit operator bool(TorProxyResult r) => r.Success;
     }
 }
