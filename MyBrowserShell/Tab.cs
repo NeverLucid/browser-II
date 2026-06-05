@@ -359,14 +359,27 @@ namespace MyBrowserShell
             if (url.StartsWith("file:///", StringComparison.OrdinalIgnoreCase))
                 return url;
 
+            // .onion addresses must use HTTP — Tor provides transport-layer security.
+            // Forcing https:// on .onion causes SSL errors and timeouts.
+            bool isOnion = url.Contains(".onion", StringComparison.OrdinalIgnoreCase) &&
+                           !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+
             if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
                 !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             {
-                return "https://" + url;
+                // No scheme: keep HTTP for .onion, upgrade everything else to HTTPS
+                return isOnion ? "http://" + url : "https://" + url;
             }
 
+            // Already has http:// scheme: keep it for .onion, upgrade to https:// otherwise
             if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
-                return "https://" + url[7..];
+            {
+                string host = url[7..]; // strip "http://"
+                bool hostIsOnion = host.StartsWith(".onion", StringComparison.OrdinalIgnoreCase)
+                    || host.Contains(".onion/", StringComparison.OrdinalIgnoreCase)
+                    || host.EndsWith(".onion", StringComparison.OrdinalIgnoreCase);
+                return hostIsOnion ? url : "https://" + host;
+            }
 
             return url;
         }
