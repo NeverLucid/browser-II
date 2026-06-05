@@ -19,8 +19,7 @@ jobs:
     runs-on: windows-latest
 
     env:
-      Solution_Name: "browser II.sln"
-      Test_Project_Path: MyBrowserShell.SmokeTests\MyBrowserShell.SmokeTests.csproj
+      Solution_Name: browser II.sln
 
     steps:
     - name: Checkout
@@ -50,9 +49,9 @@ jobs:
       env:
         Configuration: ${{ matrix.configuration }}
 
-    # Execute unit tests
-    - name: Execute unit tests
-      run: dotnet test "$env:Test_Project_Path" --configuration $env:Configuration --no-build
+    # Run smoke tests (console exe runner, not a test framework project)
+    - name: Run smoke tests
+      run: dotnet run --project MyBrowserShell.SmokeTests\MyBrowserShell.SmokeTests.csproj --configuration $env:Configuration --no-build
       env:
         Configuration: ${{ matrix.configuration }}
 
