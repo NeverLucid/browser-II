@@ -59,13 +59,32 @@ namespace MyBrowserShell
                 options: CreateTorEnvironmentOptions(port));
         }
 
+        // Browser flags shared by normal windows — excludes flags that interfere with Tor.
+        // (--disable-background-networking breaks SOCKS keepalive; we strip it for Tor.)
+        private static readonly string TorBaseBrowserArguments =
+            "--disable-client-side-phishing-detection " +
+            "--disable-default-apps " +
+            "--no-first-run " +
+            "--enable-gpu-rasterization " +
+            "--enable-zero-copy " +
+            "--enable-features=BackForwardCache " +
+            "--disable-features=msEdgeLinkedAccount,msWalletBuyNow,TranslateUI";
+
         private static CoreWebView2EnvironmentOptions CreateTorEnvironmentOptions(int socksPort)
         {
-            // Route all traffic (including DNS) through the local Tor SOCKS5 proxy.
-            // --host-resolver-rules prevents hostname leaks outside of Tor.
-            string torArgs = AdditionalBrowserArguments +
+            // Route ALL traffic (including DNS lookups) through the Tor SOCKS5 proxy.
+            //
+            // --proxy-server        : force every request through the local Tor SOCKS5 port.
+            // --host-resolver-rules : block local DNS resolution so hostnames (inc. .onion) are
+            //                         resolved by the proxy, not leaked to the OS resolver.
+            //                         We EXCLUDE both "localhost" and "127.0.0.1" so that the
+            //                         loopback address used to reach Tor itself still resolves.
+            // --proxy-bypass-list   : empty string — nothing bypasses the proxy.
+            string torArgs =
+                TorBaseBrowserArguments +
                 $" --proxy-server=socks5://127.0.0.1:{socksPort}" +
-                " --host-resolver-rules=\"MAP * ~NOTFOUND , EXCLUDE 127.0.0.1\"";
+                " --host-resolver-rules=\"MAP * ~NOTFOUND , EXCLUDE localhost , EXCLUDE 127.0.0.1\"" +
+                " --proxy-bypass-list=\"<-loopback>\"";
 
             return new CoreWebView2EnvironmentOptions
             {
