@@ -117,6 +117,12 @@ namespace MyBrowserShell
             }
         }
 
+        /// <summary>
+        /// The SOCKS5 port currently in use. 0 if Tor is not running.
+        /// BrowserRuntime reads this to build the proxy argument.
+        /// </summary>
+        public static int ActiveSocksPort => _socksPort > 0 ? _socksPort : DefaultSocksPort;
+
         public static void Shutdown()
         {
             try { _torProcess?.Kill(true); } catch { }
@@ -167,6 +173,67 @@ namespace MyBrowserShell
                 "Tor Error",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
+        }
+    }
+
+    /// <summary>Simple progress notification sent while Tor is bootstrapping.</summary>
+    internal sealed record TorBootstrapProgress(string Stage, string Detail);
+
+    /// <summary>Result of TorComponentManager.ResolveAsync.</summary>
+    internal sealed record TorComponentResolution(bool Success, string? TorExePath, string? ErrorMessage)
+    {
+        public static TorComponentResolution Ok(string torExePath) =>
+            new(true, torExePath, null);
+        public static TorComponentResolution Failure(string error) =>
+            new(false, null, error);
+    }
+
+    /// <summary>
+    /// Locates tor.exe from Tor Browser or a portable installation next to the app.
+    /// Does NOT download or install Tor — just resolves the path.
+    /// </summary>
+    internal sealed class TorComponentManager
+    {
+        private static readonly string[] Candidates = new[]
+        {
+            // Tor Browser — default LocalAppData install
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Tor Browser", "Browser", "TorBrowser", "Tor", "tor.exe"),
+            // Tor Browser — Program Files
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Tor Browser", "Browser", "TorBrowser", "Tor", "tor.exe"),
+            // Tor Browser — Program Files (x86)
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "Tor Browser", "Browser", "TorBrowser", "Tor", "tor.exe"),
+            // Portable: tor	or.exe next to the app
+            Path.Combine(AppContext.BaseDirectory, "tor", "tor.exe"),
+            Path.Combine(AppContext.BaseDirectory, "Tor", "tor.exe"),
+            Path.Combine(AppContext.BaseDirectory, "tor.exe"),
+        };
+
+        public Task<TorComponentResolution> ResolveAsync(
+            Action<TorBootstrapProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            progress?.Invoke(new TorBootstrapProgress("Locating Tor", "Searching for tor.exe..."));
+
+            foreach (var path in Candidates)
+            {
+                if (File.Exists(path))
+                    return Task.FromResult(TorComponentResolution.Ok(path));
+            }
+
+            string candidateList = string.Join("\n",
+                Path.Combine(AppContext.BaseDirectory, "tor", "tor.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Tor Browser", "Browser", "TorBrowser", "Tor", "tor.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                    "Tor Browser", "Browser", "TorBrowser", "Tor", "tor.exe"));
+
+            return Task.FromResult(TorComponentResolution.Failure(
+                "Could not find tor.exe.\n\n" +
+                "Install Tor Browser (https://www.torproject.org/download/) " +
+                "or place tor.exe at:\n" + candidateList));
         }
     }
 
