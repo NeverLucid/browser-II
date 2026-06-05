@@ -45,7 +45,7 @@ namespace MyBrowserShell
 
                 var componentManager = new TorComponentManager();
                 var component = await componentManager.ResolveAsync(progress, cancellationToken);
-                if (!component.Success || component.TorExePath == null)
+                if (!component.IsSuccess || component.TorExePath == null)
                 {
                     string message = component.ErrorMessage ?? "Tor could not be found or installed.";
                     ShowTorErrorDialog(message);
@@ -171,7 +171,7 @@ namespace MyBrowserShell
     }
 
     internal sealed record TorProxyResult(
-        bool Success,
+        bool IsSuccess,
         int SocksPort,
         string? TorExePath,
         string? ErrorMessage)
