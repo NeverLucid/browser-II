@@ -815,6 +815,7 @@ namespace MyBrowserShell
                 or CoreWebView2WebErrorStatus.Timeout
                 or CoreWebView2WebErrorStatus.ConnectionAborted
                 or CoreWebView2WebErrorStatus.ConnectionReset
+                or CoreWebView2WebErrorStatus.OperationCanceled
                 or CoreWebView2WebErrorStatus.Disconnected;
         }
 
@@ -2267,7 +2268,7 @@ namespace MyBrowserShell
             };
             var label = new Label
             {
-                Text = "Connecting to the Tor network...\nThis may take a few seconds.",
+                Text = "Connecting to the Tor network…\nThis may take up to 90 seconds on first launch.",
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Font = new Font("Segoe UI", 10f),
