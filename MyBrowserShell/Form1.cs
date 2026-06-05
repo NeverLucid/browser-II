@@ -118,6 +118,11 @@ namespace MyBrowserShell
         public Form1(bool torWindow = false)
         {
             isTorWindow = torWindow;
+
+            // Kick off WebView2 environment init immediately so it's warm by the time
+            // the first tab calls InitializeAsync — eliminates first-navigation stall.
+            if (!torWindow)
+                BrowserRuntime.Warmup();
             InitializeComponent();
             ReplaceTabHost();
 
@@ -751,6 +756,7 @@ namespace MyBrowserShell
                         // Guard: only show error page if CoreWebView2 is still alive
                         if (tab.WebView.CoreWebView2 != null && !tab.WebView.IsDisposed)
                             tab.ShowNavigationError(e.WebErrorStatus, homeUrl);
+                        // Single combined UI refresh on error path
                         UpdateAddressFromCurrentTab();
                         UpdateNavigationButtons();
                         RefreshTabStrip();
@@ -765,12 +771,17 @@ namespace MyBrowserShell
                         meta.LastActiveUtc = DateTime.UtcNow;
                         meta.IsSuspended = tab.IsSuspended;
                     }
+
+                    // Single combined UI refresh on success path (was called 3+ times separately)
                     UpdateAddressFromCurrentTab();
                     UpdateNavigationButtons();
                     RefreshTabStrip();
                     UpdateBookmarkButton();
-                    await InjectNewTabDataAsync(tab);
-                    await tab.ApplyDarkModeAsync(darkTheme);
+
+                    // These are async script injections — run in parallel to avoid sequential waits
+                    await Task.WhenAll(
+                        InjectNewTabDataAsync(tab),
+                        tab.ApplyDarkModeAsync(darkTheme));
                 }));
             };
 
