@@ -246,7 +246,7 @@ namespace MyBrowserShell
     }
 
     internal sealed record TorComponentResult(
-        bool Success,
+        bool IsSuccess,
         string? TorExePath,
         bool Downloaded,
         string? ErrorMessage)
