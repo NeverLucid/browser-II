@@ -107,20 +107,34 @@ namespace MyBrowserShell
             "sentry.io"
         };
 
+        // Enhanced ad-blocking hosts - now includes 50+ ad networks
         private static readonly HashSet<string> ShieldBlockedHosts = new(StringComparer.OrdinalIgnoreCase)
         {
+            // Google Ad Services
             "googlesyndication.com",
             "doubleclick.net",
-            "ads.twitter.com",
-            "ads.linkedin.com",
             "adservice.google.com",
             "googleadservices.com",
             "pagead2.googlesyndication.com",
             "securepubads.g.doubleclick.net",
+            "ads.google.com",
+            "ad.doubleclick.net",
+            "stats.g.doubleclick.net",
+            "www-google-analytics.l.google.com",
+            
+            // Social Media Ads
+            "ads.twitter.com",
+            "ads.linkedin.com",
+            "facebook.com",
+            "instagram.com",
+            
+            // Content Ad Networks & Recommendation Engines
             "taboola.com",
             "outbrain.com",
             "criteo.com",
             "criteo.net",
+            
+            // Programmatic Ad Exchanges & Supply-Side Platforms
             "adnxs.com",
             "adsrvr.org",
             "bidswitch.net",
@@ -136,11 +150,35 @@ namespace MyBrowserShell
             "amazon-adsystem.com",
             "yieldmo.com",
             "zedo.com",
+            
+            // Pop-up & Malicious Ads
             "popads.net",
             "propellerads.com",
+            
+            // Crypto Mining
             "coinhive.com",
             "coin-hive.com",
-            "cryptoloot.pro"
+            "cryptoloot.pro",
+            
+            // Additional Ad Networks & Services
+            "aol.com",
+            "oath.com",
+            "verizon-media.com",
+            "sonobi.com",
+            "indexexchange.com",
+            "appnexus.com",
+            "improvado.io",
+            "spotxchange.com",
+            "telaria.com",
+            "triplelift.com",
+            "pubwise.io",
+            "jivox.com",
+            "smaato.com",
+            "flurry.com",
+            "applovin.com",
+            "mopub.com",
+            "unity3d.com",
+            "unityads.unity3d.com"
         };
 
         private static readonly string[] ShieldBlockedHostTokens =
@@ -152,7 +190,12 @@ namespace MyBrowserShell
             ".tracking.",
             ".track.",
             ".telemetry.",
-            ".metrics."
+            ".metrics.",
+            ".ad.",
+            ".advertisement.",
+            ".advertise.",
+            ".promotional.",
+            ".monetize."
         };
 
         private static readonly string[] ShieldBlockedLeadingHostTokens =
@@ -164,7 +207,12 @@ namespace MyBrowserShell
             "tracking.",
             "track.",
             "telemetry.",
-            "metrics."
+            "metrics.",
+            "ad.",
+            "advertisement.",
+            "advertise.",
+            "promotional.",
+            "monetize."
         };
 
         private static readonly string[] ShieldBlockedPathTokens =
@@ -188,7 +236,18 @@ namespace MyBrowserShell
             "/events?",
             "/log?",
             "/logs?",
-            "/stats?"
+            "/stats?",
+            "/adm/",
+            "/advertisement/",
+            "/sponsored/",
+            "/promoted/",
+            "/promo/",
+            "/display/",
+            "/click/",
+            "/impression/",
+            "/viewable/",
+            "/vast/",
+            "/vpaid/"
         };
 
         public static void SetShieldsEnabled(bool enabled) => ShieldsEnabled = enabled;
@@ -269,6 +328,15 @@ namespace MyBrowserShell
                 {
                     if (thirdParty && pathAndQuery.Contains(token, StringComparison.OrdinalIgnoreCase))
                         return true;
+                }
+
+                // Block common ad tracking parameters
+                if (uri.Query.Contains("utm_", StringComparison.OrdinalIgnoreCase) ||
+                    uri.Query.Contains("fbclid", StringComparison.OrdinalIgnoreCase) ||
+                    uri.Query.Contains("gclid", StringComparison.OrdinalIgnoreCase) ||
+                    uri.Query.Contains("msclkid", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
                 }
             }
 
