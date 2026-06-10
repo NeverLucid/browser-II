@@ -7,8 +7,7 @@ using System.Threading.Tasks;
 namespace MyBrowserShell
 {
     internal enum BrowserResourceKind
-    {
-        Other,
+    {        Other,
         Image,
         Media,
         Script,
@@ -126,7 +125,6 @@ namespace MyBrowserShell
             "ads.twitter.com",
             "ads.linkedin.com",
             "facebook.com",
-            "instagram.com",
             
             // Content Ad Networks & Recommendation Engines
             "taboola.com",
@@ -380,28 +378,15 @@ namespace MyBrowserShell
             return patterns;
         }
 
-        // Precomputed suffix-match cache: maps each blocked host string to itself so
-        // subdomain checks are a dictionary lookup instead of an O(n) loop.
-        // Key insight: to check if "sub.example.com" matches blocked host "example.com",
-        // we just need to walk up the domain labels and check the set — O(labels) not O(n).
         private static bool MatchesHost(string host, HashSet<string> blockedHosts)
         {
-            if (string.IsNullOrEmpty(host))
-                return false;
-
-            // Fast path: exact match (O(1) hash lookup)
             if (blockedHosts.Contains(host))
                 return true;
 
-            // Walk up the domain hierarchy checking each suffix (O(label count) ≈ O(3-4))
-            // e.g. for "sub.ads.example.com" checks: "ads.example.com", "example.com", "com"
-            int idx = host.IndexOf('.', StringComparison.Ordinal);
-            while (idx >= 0 && idx < host.Length - 1)
+            foreach (var blocked in blockedHosts)
             {
-                string suffix = host[(idx + 1)..];
-                if (blockedHosts.Contains(suffix))
+                if (host.EndsWith("." + blocked, StringComparison.OrdinalIgnoreCase))
                     return true;
-                idx = host.IndexOf('.', idx + 1);
             }
 
             return false;
