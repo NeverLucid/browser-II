@@ -8,6 +8,7 @@
   <StartupObject>MyBrowserShell.Program</StartupObject>
   <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
   <DisableImplicitAssemblyIdentity>true</DisableImplicitAssemblyIdentity>
+  <NoWarn>$(NoWarn);MSB3277</NoWarn>
 </PropertyGroup>
 
   <ItemGroup>
