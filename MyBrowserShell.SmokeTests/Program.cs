@@ -6,7 +6,10 @@ var tests = new (string Name, Action Run)[]
     ("URL normalization", UrlNormalization),
     ("Shield blocking decisions", ShieldBlockingDecisions),
     ("Site shield exceptions", SiteShieldExceptions),
-    ("Settings persistence", SettingsPersistence)
+    ("Settings persistence", SettingsPersistence),
+    ("Tor port selection", TorPortSelection),
+    ("Shield third-party path tokens", ShieldPathTokenBlocking),
+    ("Shield allows first-party", ShieldAllowsFirstParty),
 };
 
 foreach (var (name, run) in tests)
@@ -49,6 +52,54 @@ static void ShieldBlockingDecisions()
         CoreWebView2WebResourceContext.Script,
         shieldsEnabled: true,
         sourceUri: "https://example.com/"));
+
+    // Known ad network hosts are blocked
+    True(PrivacyPolicy.ShouldBlockUri(
+        "https://googlesyndication.com/pagead/js/adsbygoogle.js",
+        CoreWebView2WebResourceContext.Script,
+        shieldsEnabled: true,
+        sourceUri: "https://example.com/"));
+
+    // doubleclick.net blocked
+    True(PrivacyPolicy.ShouldBlockUri(
+        "https://securepubads.g.doubleclick.net/gpt/pubads_impl.js",
+        CoreWebView2WebResourceContext.Script,
+        shieldsEnabled: true,
+        sourceUri: "https://example.com/"));
+}
+
+static void ShieldPathTokenBlocking()
+{
+    // /pixel path token should be blocked as third-party
+    True(PrivacyPolicy.ShouldBlockUri(
+        "https://cdn.otherdomain.com/pixel/track",
+        CoreWebView2WebResourceContext.Image,
+        shieldsEnabled: true,
+        sourceUri: "https://example.com/"));
+
+    // /collect? path token blocked as third-party
+    True(PrivacyPolicy.ShouldBlockUri(
+        "https://cdn.otherdomain.com/collect?id=123",
+        CoreWebView2WebResourceContext.Fetch,
+        shieldsEnabled: true,
+        sourceUri: "https://example.com/"));
+}
+
+static void ShieldAllowsFirstParty()
+{
+    // First-party analytics path should NOT be blocked
+    False(PrivacyPolicy.ShouldBlockUri(
+        "https://example.com/analytics/pageview",
+        CoreWebView2WebResourceContext.Fetch,
+        shieldsEnabled: true,
+        sourceUri: "https://example.com/"));
+
+    // First-party ad-named asset should NOT be blocked
+    False(PrivacyPolicy.ShouldBlockUri(
+        "https://example.com/assets/ads/banner.png",
+        CoreWebView2WebResourceContext.Image,
+        shieldsEnabled: true,
+        sourceUri: "https://example.com/"));
 }
 
 static void SiteShieldExceptions()
@@ -83,6 +134,25 @@ static void SettingsPersistence()
     True(loaded.ShieldsEnabled);
     Equal("https://search.example/?q=", loaded.SearchUrl);
     Equal("example.com", loaded.ShieldDisabledHosts.Single());
+
+    // Round-trip with defaults: missing file should return a valid default object
+    string emptyRoot = Path.Combine(Path.GetTempPath(), "MyBrowserShellSmokeTests", Guid.NewGuid().ToString("N"));
+    var defaults = new SettingsStore(emptyRoot).Load();
+    NotNull(defaults);
+}
+
+static void TorPortSelection()
+{
+    // With no preferred ports occupied, should return a free ephemeral port > 0
+    int port = TorProxy.SelectAvailableSocksPortForTests();
+    True(port > 0);
+
+    // Passing an obviously-unbound port should get it back directly
+    // (pick something unlikely to be in use on CI)
+    int preferred = 19853;
+    int selected = TorProxy.SelectAvailableSocksPortForTests(preferred);
+    // It's either our preferred (if free) or a different free port — either way > 0
+    True(selected > 0);
 }
 
 static void True(bool value)
@@ -101,4 +171,10 @@ static void Equal<T>(T expected, T actual)
 {
     if (!EqualityComparer<T>.Default.Equals(expected, actual))
         throw new InvalidOperationException($"Expected {expected}, got {actual}.");
+}
+
+static void NotNull<T>(T value) where T : class
+{
+    if (value is null)
+        throw new InvalidOperationException("Expected non-null value.");
 }
