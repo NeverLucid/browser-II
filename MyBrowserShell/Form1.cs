@@ -106,7 +106,16 @@ namespace MyBrowserShell
         private float restoreTabStripHeight;
         private float restoreToolbarHeight;
         private float restoreFindPanelHeight;
+
+        // Hold-to-preview navigation history (Back/Forward buttons)
+        private const int NavHoldPreviewDelayMs = 430;
+        private bool _navHoldTriggered;
+        private Timer? _backHoldTimer;
+        private Timer? _forwardHoldTimer;
+        private ContextMenuStrip? _navHistoryMenu;
+
         private bool IsDarkTheme => darkTheme;
+
         private Color WindowColor => IsDarkTheme ? DarkWindow : LightWindow;
         private Color ChromeColor => IsDarkTheme ? DarkChrome : LightChrome;
         private Color SurfaceColor => IsDarkTheme ? DarkSurface : LightSurface;
@@ -207,6 +216,10 @@ namespace MyBrowserShell
             BuildTabStrip();
             BuildToolbar();
             BuildFindPanel();
+
+            // Hook hold-to-preview for Back/Forward buttons after controls are built
+            SetupNavHoldPreviewTimers();
+
 
             rootLayout.Controls.Add(tabStripBar, 0, 0);
             rootLayout.Controls.Add(topBar, 0, 1);
@@ -309,8 +322,18 @@ namespace MyBrowserShell
             forwardButton = CreateIconButton(IconKind.Forward, "Forward (Alt+Right)");
             reloadButton = CreateIconButton(IconKind.Reload, "Reload (F5)");
 
-            backButton.Click += (s, e) => GoBack();
-            forwardButton.Click += (s, e) => GoForward();
+            backButton.Click += (s, e) =>
+            {
+                if (_navHoldTriggered)
+                    return;
+                GoBack();
+            };
+            forwardButton.Click += (s, e) =>
+            {
+                if (_navHoldTriggered)
+                    return;
+                GoForward();
+            };
             reloadButton.Click += (s, e) => ReloadOrStop();
 
             navPanel.Controls.AddRange(new Control[] { backButton, forwardButton, reloadButton });
@@ -1140,6 +1163,219 @@ namespace MyBrowserShell
             if (CurrentTab?.WebView.CoreWebView2?.CanGoForward == true)
                 CurrentTab.WebView.CoreWebView2.GoForward();
         }
+
+        private void SetupNavHoldPreviewTimers()
+        {
+            if (_backHoldTimer == null)
+            {
+                _backHoldTimer = new Timer { Interval = NavHoldPreviewDelayMs };
+                _backHoldTimer.Tick += (_, __) =>
+                {
+                    _backHoldTimer?.Stop();
+                    _navHoldTriggered = true;
+                    ShowNavHistoryMenu(isBack: true);
+                };
+            }
+
+            if (_forwardHoldTimer == null)
+            {
+                _forwardHoldTimer = new Timer { Interval = NavHoldPreviewDelayMs };
+                _forwardHoldTimer.Tick += (_, __) =>
+                {
+                    _forwardHoldTimer?.Stop();
+                    _navHoldTriggered = true;
+                    ShowNavHistoryMenu(isBack: false);
+                };
+            }
+
+            backButton.MouseDown -= BackButton_MouseDown;
+            backButton.MouseUp -= BackButton_MouseUp;
+            backButton.MouseLeave -= BackButton_MouseLeave;
+
+            forwardButton.MouseDown -= ForwardButton_MouseDown;
+            forwardButton.MouseUp -= ForwardButton_MouseUp;
+            forwardButton.MouseLeave -= ForwardButton_MouseLeave;
+
+            backButton.MouseDown += BackButton_MouseDown;
+            backButton.MouseUp += BackButton_MouseUp;
+            backButton.MouseLeave += BackButton_MouseLeave;
+
+            forwardButton.MouseDown += ForwardButton_MouseDown;
+            forwardButton.MouseUp += ForwardButton_MouseUp;
+            forwardButton.MouseLeave += ForwardButton_MouseLeave;
+        }
+
+        private void BackButton_MouseDown(object? sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left)
+                return;
+            _navHoldTriggered = false;
+            _backHoldTimer?.Stop();
+            _backHoldTimer?.Start();
+        }
+
+        private void BackButton_MouseUp(object? sender, MouseEventArgs e)
+        {
+            _backHoldTimer?.Stop();
+        }
+
+        private void BackButton_MouseLeave(object? sender, EventArgs e)
+        {
+            _backHoldTimer?.Stop();
+        }
+
+        private void ForwardButton_MouseDown(object? sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left)
+                return;
+            _navHoldTriggered = false;
+            _forwardHoldTimer?.Stop();
+            _forwardHoldTimer?.Start();
+        }
+
+        private void ForwardButton_MouseUp(object? sender, MouseEventArgs e)
+        {
+            _forwardHoldTimer?.Stop();
+        }
+
+        private void ForwardButton_MouseLeave(object? sender, EventArgs e)
+        {
+            _forwardHoldTimer?.Stop();
+        }
+
+        private void ShowNavHistoryMenu(bool isBack)
+        {
+            var core = CurrentTab?.WebView.CoreWebView2;
+            if (core == null)
+                return;
+
+            if (isBack && !core.CanGoBack) return;
+            if (!isBack && !core.CanGoForward) return;
+
+            // Dispose old menu (and rebuild each time for freshest history)
+            if (_navHistoryMenu != null)
+            {
+                try { _navHistoryMenu.Close(); } catch { }
+                _navHistoryMenu.Dispose();
+                _navHistoryMenu = null;
+            }
+
+            _navHistoryMenu = new ContextMenuStrip();
+
+            // Attempt to use CoreWebView2.NavigationHistory APIs via reflection (keeps us resilient).
+            try
+            {
+                var navHistoryObj = core.GetType().GetMethod("GetNavigationHistory")?.Invoke(core, null);
+                if (navHistoryObj == null)
+                    throw new MissingMethodException("GetNavigationHistory not available");
+
+                int currentIndex = (int?)navHistoryObj.GetType().GetProperty("CurrentIndex")?.GetValue(navHistoryObj) ?? 0;
+                var entriesObj = navHistoryObj.GetType().GetProperty("Entries")?.GetValue(navHistoryObj);
+                if (entriesObj == null)
+                    throw new MissingMemberException("Navigation history entries not found");
+
+                var entries = (System.Collections.IEnumerable)entriesObj;
+                var list = new System.Collections.Generic.List<object>();
+                foreach (var it in entries) list.Add(it);
+
+                if (list.Count == 0)
+                    throw new InvalidOperationException("No navigation history entries");
+
+                int start = isBack ? Math.Max(0, currentIndex - 10) : currentIndex + 1;
+                int endExclusive = isBack ? currentIndex : Math.Min(list.Count, currentIndex + 11);
+
+                if (isBack)
+                    for (int i = currentIndex - 1; i >= start; i--)
+                        AddHistoryItemToMenu(core, navHistoryObj, _navHistoryMenu, list[i], delta: i - currentIndex);
+                else
+                    for (int i = currentIndex + 1; i < endExclusive; i++)
+                        AddHistoryItemToMenu(core, navHistoryObj, _navHistoryMenu, list[i], delta: i - currentIndex);
+
+                if (_navHistoryMenu.Items.Count == 0)
+                    _navHistoryMenu.Items.Add(new ToolStripMenuItem("No earlier pages") { Enabled = false });
+            }
+            catch
+            {
+                // Fallback: show minimal menu using GoBack/GoForward only.
+                {
+                    var item = new ToolStripMenuItem(isBack ? "Back" : "Forward")
+                    {
+                        Enabled = true
+                    };
+                    item.Click += (s, e) =>
+                    {
+                        if (isBack) GoBack(); else GoForward();
+                    };
+                    _navHistoryMenu.Items.Add(item);
+                }
+            }
+
+            // Position near the pressed button
+            var origin = isBack ? backButton : forwardButton;
+            var screen = origin.PointToScreen(new Point(0, origin.Height));
+            _navHistoryMenu.Show(screen);
+        }
+
+        private void AddHistoryItemToMenu(CoreWebView2 core, object navHistoryObj, ContextMenuStrip menu, object entry, int delta)
+        {
+            // entry has Url and/or DisplayName depending on WebView2 version.
+            string? url = entry.GetType().GetProperty("Url")?.GetValue(entry)?.ToString();
+            string? title = entry.GetType().GetProperty("Title")?.GetValue(entry)?.ToString();
+            if (string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(url))
+                return;
+
+            string display = !string.IsNullOrWhiteSpace(title)
+                ? title
+                : url;
+
+            if (string.IsNullOrWhiteSpace(display))
+                return;
+
+            display = TrimMenuText(display, 70);
+
+            var item = new ToolStripMenuItem(display) { ToolTipText = url };
+            item.Click += (_, __) =>
+            {
+                try
+                {
+                    // Prefer jump-style navigation if available
+                    var jumpMethod = core.GetType().GetMethod("GoBackOrForward", new[] { typeof(int) });
+                    if (jumpMethod != null)
+                    {
+                        jumpMethod.Invoke(core, new object[] { delta });
+                        return;
+                    }
+                }
+                catch { }
+
+                // Fallback: sequential back/forward to approximate jump.
+                if (delta < 0)
+                {
+                    int steps = Math.Abs(delta);
+                    for (int i = 0; i < steps; i++)
+                    {
+                        if (core.CanGoBack)
+                            core.GoBack();
+                        else
+                            break;
+                    }
+                }
+                else if (delta > 0)
+                {
+                    int steps = delta;
+                    for (int i = 0; i < steps; i++)
+                    {
+                        if (core.CanGoForward)
+                            core.GoForward();
+                        else
+                            break;
+                    }
+                }
+            };
+
+            menu.Items.Add(item);
+        }
+
 
         private void Reload()
         {
