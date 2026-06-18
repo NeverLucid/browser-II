@@ -49,9 +49,13 @@ jobs:
       env:
         Configuration: ${{ matrix.configuration }}
 
-    # Run smoke tests (console exe runner, not a test framework project)
+    # Run smoke tests (block scalar avoids & being parsed as a YAML anchor)
     - name: Run smoke tests
-      run: & ".\MyBrowserShell.SmokeTests\bin\$env:Configuration\net8.0-windows\MyBrowserShell.SmokeTests.exe"
+      shell: pwsh
+      run: |
+        $exe = ".\MyBrowserShell.SmokeTests\bin\$env:Configuration\net8.0-windows\MyBrowserShell.SmokeTests.exe"
+        & $exe
+        exit $LASTEXITCODE
       env:
         Configuration: ${{ matrix.configuration }}
 
