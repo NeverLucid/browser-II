@@ -19,7 +19,13 @@ namespace MyBrowserShell
                 return null;
 
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
-                return null;
+            {
+                // Not an absolute URL — treat as a bare hostname
+                string bare = url.Trim().ToLowerInvariant();
+                if (bare.StartsWith("www.", StringComparison.Ordinal))
+                    bare = bare.Substring(4);
+                return string.IsNullOrEmpty(bare) ? null : bare;
+            }
 
             if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
                 return null;
@@ -33,21 +39,37 @@ namespace MyBrowserShell
         }
 
         /// <summary>
-        /// Returns true if <paramref name="host"/> (or null) is in the exceptions list.
+        /// Returns true if the host extracted from <paramref name="urlOrHost"/> matches
+        /// any entry in <paramref name="exceptions"/>, including subdomains.
         /// </summary>
-        public static bool IsHostExcepted(string? host, List<string> exceptions)
+        public static bool IsHostExcepted(string? urlOrHost, List<string> exceptions)
         {
-            if (host == null || exceptions == null || exceptions.Count == 0)
+            if (urlOrHost == null || exceptions == null || exceptions.Count == 0)
                 return false;
 
-            return exceptions.Contains(host);
+            string? host = NormalizeHost(urlOrHost);
+            if (host == null) return false;
+
+            foreach (var entry in exceptions)
+            {
+                if (string.IsNullOrWhiteSpace(entry)) continue;
+                // Exact match (e.g. "example.com") or subdomain match (e.g. "sub.example.com")
+                if (host == entry || host.EndsWith("." + entry, StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>
-        /// Adds or removes <paramref name="host"/> from the exceptions list.
+        /// Adds or removes the normalised host derived from <paramref name="urlOrHost"/>
+        /// from the exceptions list.
         /// </summary>
-        public static void SetException(List<string> exceptions, string host, bool disabled)
+        public static void SetException(List<string> exceptions, string urlOrHost, bool disabled)
         {
+            string? host = NormalizeHost(urlOrHost);
+            if (host == null) return;
+
             if (disabled)
             {
                 if (!exceptions.Contains(host))
