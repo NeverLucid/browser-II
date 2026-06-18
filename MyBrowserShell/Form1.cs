@@ -1272,7 +1272,7 @@ namespace MyBrowserShell
                 int currentIndex = (int?)navHistoryObj.GetType().GetProperty("CurrentIndex")?.GetValue(navHistoryObj) ?? 0;
                 var entriesObj = navHistoryObj.GetType().GetProperty("Entries")?.GetValue(navHistoryObj);
                 if (entriesObj == null)
-                    throw new MissingMemberException("Navigation history entries not found");
+                    throw new InvalidOperationException("Navigation history entries not found");
 
                 var entries = (System.Collections.IEnumerable)entriesObj;
                 var list = new System.Collections.Generic.List<object>();
@@ -1326,7 +1326,7 @@ namespace MyBrowserShell
 
             string display = !string.IsNullOrWhiteSpace(title)
                 ? title
-                : url;
+                : url!;
 
             if (string.IsNullOrWhiteSpace(display))
                 return;
