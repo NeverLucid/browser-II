@@ -1,6 +1,6 @@
 ﻿using System.Windows.Forms;
 
-namespace MyBrowserShell
+namespace Elastica
 {
     partial class Form1
     {

@@ -4,8 +4,9 @@
   <OutputType>WinExe</OutputType>
   <TargetFramework>net8.0-windows</TargetFramework>
   <UseWindowsForms>true</UseWindowsForms>
-  <AssemblyName>MyBrowserShell</AssemblyName>
-  <StartupObject>MyBrowserShell.Program</StartupObject>
+  <AssemblyName>Elastica</AssemblyName>
+  <RootNamespace>Elastica</RootNamespace>
+  <StartupObject>Elastica.Program</StartupObject>
   <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
   <DisableImplicitAssemblyIdentity>true</DisableImplicitAssemblyIdentity>
   <NoWarn>$(NoWarn);MSB3277</NoWarn>

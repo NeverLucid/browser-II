@@ -12,7 +12,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace MyBrowserShell
+namespace Elastica
 {
     public partial class Form1 : Form
     {

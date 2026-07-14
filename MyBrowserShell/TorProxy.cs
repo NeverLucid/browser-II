@@ -8,7 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace MyBrowserShell
+namespace Elastica
 {
     /// <summary>
     /// Manages the lifetime of the Tor SOCKS5 proxy process.

@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+	<!-- Suppress the WindowsBase version conflict warning (MSB3277) globally. This prevents
+		 spurious warnings caused by some packages providing WPF-specific assemblies when
+		 targeting net8.0-windows in a WinForms app. If you prefer to actually remove the
+		 transitive WPF reference, we can take a targeted approach, but suppression is safe
+		 since it's only a version-unification warning. -->
+	<NoWarn>$(NoWarn);MSB3277</NoWarn>
+  </PropertyGroup>
+</Project>

@@ -2,7 +2,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace MyBrowserShell
+namespace Elastica
 {
     public class TabState
     {

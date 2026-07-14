@@ -1,7 +1,7 @@
 #nullable enable
 using System;
 
-namespace MyBrowserShell
+namespace Elastica
 {
     internal sealed class TabMetadata
     {

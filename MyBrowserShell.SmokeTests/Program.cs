@@ -1,5 +1,5 @@
 using Microsoft.Web.WebView2.Core;
-using MyBrowserShell;
+using Elastica;
 
 var tests = new (string Name, Action Run)[]
 {

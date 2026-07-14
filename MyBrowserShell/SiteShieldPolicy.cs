@@ -2,7 +2,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace MyBrowserShell
+namespace Elastica
 {
     /// <summary>
     /// Helpers for per-site shield exceptions (stored as a list of host strings in BrowserSettings).

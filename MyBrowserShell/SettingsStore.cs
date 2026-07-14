@@ -3,7 +3,7 @@ using System;
 using System.IO;
 using System.Text.Json;
 
-namespace MyBrowserShell
+namespace Elastica
 {
     internal sealed class SettingsStore
     {

@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 
-namespace MyBrowserShell
+namespace Elastica
 {
     internal sealed class BrowserSettings
     {

@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 
-namespace MyBrowserShell
+namespace Elastica
 {
     internal sealed class SavedSession
     {
