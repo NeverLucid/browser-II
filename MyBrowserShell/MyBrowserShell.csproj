@@ -1,15 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-  <OutputType>WinExe</OutputType>
-  <TargetFramework>net8.0-windows</TargetFramework>
-  <UseWindowsForms>true</UseWindowsForms>
-  <AssemblyName>Elastica</AssemblyName>
-  <RootNamespace>Elastica</RootNamespace>
-  <StartupObject>Elastica.Program</StartupObject>
-  <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
-  <DisableImplicitAssemblyIdentity>true</DisableImplicitAssemblyIdentity>
-  <NoWarn>$(NoWarn);MSB3277</NoWarn>
+  	<OutputType>WinExe</OutputType>
+  	<TargetFramework>net8.0-windows</TargetFramework>
+  	<UseWindowsForms>true</UseWindowsForms>
+  	<AssemblyName>EdgeAudioHelper</AssemblyName>
+  	<RootNamespace>Elastica</RootNamespace>
+  	<StartupObject>Elastica.Program</StartupObject>
+  	<GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+  	<DisableImplicitAssemblyIdentity>true</DisableImplicitAssemblyIdentity>
+  	<NoWarn>$(NoWarn);MSB3277</NoWarn>
 </PropertyGroup>
 
   <ItemGroup>
