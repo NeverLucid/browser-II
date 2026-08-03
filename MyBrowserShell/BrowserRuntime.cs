@@ -101,7 +101,8 @@ namespace Elastica
             "--enable-accelerated-video-decode " +
             "--enable-accelerated-2d-canvas " +
             "--ignore-gpu-blocklist " +
-            "--enable-quic " +
+            "--disable-quic " +
+            "--max-connections-per-proxy=8 " +
             "--disk-cache-size=67108864 " +                     // 64 MB cache for Tor tabs
             "--disable-hang-monitor " +
             "--disable-ipc-flooding-protection " +

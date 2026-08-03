@@ -849,7 +849,6 @@ namespace Elastica
                 or CoreWebView2WebErrorStatus.Timeout
                 or CoreWebView2WebErrorStatus.ConnectionAborted
                 or CoreWebView2WebErrorStatus.ConnectionReset
-                or CoreWebView2WebErrorStatus.OperationCanceled
                 or CoreWebView2WebErrorStatus.Disconnected;
         }
 
@@ -1509,16 +1508,7 @@ namespace Elastica
 
         private static string NormalizeWebAddress(string input)
         {
-            if (!input.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
-                !input.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-            {
-                input = "https://" + input;
-            }
-
-            if (input.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
-                input = "https://" + input.Substring(7);
-
-            return input;
+            return Tab.NormalizeNavigationUrlForTests(input) ?? input;
         }
 
         private void ApplyTabFilter(TabPage? selectPage = null)
@@ -1563,6 +1553,7 @@ namespace Elastica
             visiblePages = visiblePages
                 .OrderByDescending(p => tabMetadata.TryGetValue(p, out var meta) && meta.IsPinned)
                 .ToList();
+            var visiblePageSet = visiblePages.ToHashSet();
 
             tabFlow.SuspendLayout();
 
@@ -1571,7 +1562,7 @@ namespace Elastica
             var existingChips = tabFlow.Controls.OfType<TabChip>().ToList();
             foreach (var chip in existingChips)
             {
-                if (!visiblePages.Contains(chip.Page))
+                if (!visiblePageSet.Contains(chip.Page))
                 {
                     tabFlow.Controls.Remove(chip);
                     chip.Dispose();
@@ -2501,7 +2492,7 @@ namespace Elastica
         /// </summary>
         private async Task OpenTorWindowAsync()
         {
-            // Show a "connecting" hint while Tor bootstraps (can take a few seconds)
+            // Show a connecting hint while Tor bootstraps.
             var splash = new Form
             {
                 Text = "Connecting to Tor…",
@@ -2515,7 +2506,7 @@ namespace Elastica
             };
             var label = new Label
             {
-                Text = "Connecting to the Tor network…\nThis may take up to 90 seconds on first launch.",
+                Text = "Connecting to the Tor network...\nThis may take up to 180 seconds on first launch.",
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Font = new Font("Segoe UI", 10f),
@@ -2524,7 +2515,17 @@ namespace Elastica
             splash.Show(this);
             splash.Refresh();
 
-            bool ok = await TorProxy.EnsureRunningAsync();
+            bool ok = await TorProxy.EnsureRunningAsync(progress =>
+            {
+                if (splash.IsDisposed)
+                    return;
+
+                splash.BeginInvoke(new Action(() =>
+                {
+                    if (!splash.IsDisposed)
+                        label.Text = progress.Stage + "\n" + progress.Message;
+                }));
+            });
             splash.Close();
 
             if (!ok)
@@ -3274,10 +3275,11 @@ namespace Elastica
             var textLeft = Pinned ? rect.Left + 40 : rect.Left + 26;
             var textRightPadding = Muted ? 72 : 58;
             var textRect = new Rectangle(textLeft, rect.Top + 4, rect.Width - textRightPadding, rect.Height - 8);
+            using var font = new Font("Segoe UI", 9f, Active ? FontStyle.Bold : FontStyle.Regular);
             TextRenderer.DrawText(
                 e.Graphics,
                 string.IsNullOrWhiteSpace(page.Text) ? "New Tab" : page.Text,
-                new Font("Segoe UI", 9f, Active ? FontStyle.Bold : FontStyle.Regular),
+                font,
                 textRect,
                 Active ? Theme.Text : Theme.Muted,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);

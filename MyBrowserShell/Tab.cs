@@ -4,6 +4,7 @@ using Microsoft.Web.WebView2.WinForms;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -27,7 +28,8 @@ namespace Elastica
         private readonly Dictionary<ulong, int> _redirectCountsByNavigation = new();
         private string _lastUrl = "";
         private bool? _lastDarkMode;         // cache: skip dark-mode script injection when unchanged
-        private bool _profileSettingsDone;   // cache: skip async profile settings after first apply
+        private bool _profileSettingsApplied;
+        private bool _appliedProfileShields;
 
         public event EventHandler? PrivacyStatsChanged;
         public event EventHandler<BrowserDownloadRequestedEventArgs>? DownloadRequested;
@@ -125,12 +127,13 @@ namespace Elastica
 
             var core = WebView.CoreWebView2;
 
-            // Profile-level settings (async, ~2 round trips to the browser process) only
-            // need to run once — they are stored on the profile, not reset per navigation.
-            if (!_profileSettingsDone)
+            // Profile-level settings are stored on the profile, but shield toggles still
+            // need to update them when moving between protected and unprotected modes.
+            if (!_profileSettingsApplied || _appliedProfileShields != shields)
             {
                 await PrivacyPolicy.ApplyProfileSettingsAsync(core.Profile, shields);
-                _profileSettingsDone = true;
+                _profileSettingsApplied = true;
+                _appliedProfileShields = shields;
             }
 
             PrivacyPolicy.ApplyBrowserSettings(core.Settings, shields);
@@ -371,27 +374,77 @@ namespace Elastica
 
             // .onion addresses must use HTTP — Tor provides transport-layer security.
             // Forcing https:// on .onion causes SSL errors and timeouts.
-            bool isOnion = url.Contains(".onion", StringComparison.OrdinalIgnoreCase) &&
-                           !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+            bool isOnion = IsOnionAddress(url);
+            bool isLocal = IsLocalHostAddress(url);
 
             if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
                 !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             {
-                // No scheme: keep HTTP for .onion, upgrade everything else to HTTPS
-                return isOnion ? "http://" + url : "https://" + url;
+                // No scheme: keep HTTP for Tor and local dev addresses, upgrade public hosts.
+                return isOnion || isLocal ? "http://" + url : "https://" + url;
             }
 
-            // Already has http:// scheme: keep it for .onion, upgrade to https:// otherwise
+            // Already has http:// scheme: keep it for Tor/local addresses, upgrade public hosts.
             if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
             {
                 string host = url[7..]; // strip "http://"
-                bool hostIsOnion = host.StartsWith(".onion", StringComparison.OrdinalIgnoreCase)
-                    || host.Contains(".onion/", StringComparison.OrdinalIgnoreCase)
-                    || host.EndsWith(".onion", StringComparison.OrdinalIgnoreCase);
-                return hostIsOnion ? url : "https://" + host;
+                return IsOnionAddress(url) || IsLocalHostAddress(url) ? url : "https://" + host;
             }
 
+            if (url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) && isOnion)
+                return "http://" + url[8..];
+
             return url;
+        }
+
+        private static bool IsOnionAddress(string url) =>
+            TryExtractHost(url, out string host) &&
+            host.EndsWith(".onion", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsLocalHostAddress(string url)
+        {
+            if (!TryExtractHost(url, out string host))
+                return false;
+
+            if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address);
+        }
+
+        private static bool TryExtractHost(string url, out string host)
+        {
+            host = "";
+
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+                (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+            {
+                host = uri.Host;
+                return host.Length > 0;
+            }
+
+            int schemeStart = url.IndexOf("://", StringComparison.Ordinal);
+            if (schemeStart >= 0)
+                url = url[(schemeStart + 3)..];
+
+            int pathStart = url.IndexOfAny(new[] { '/', '?', '#' });
+            string candidate = pathStart >= 0 ? url[..pathStart] : url;
+
+            if (candidate.StartsWith("[", StringComparison.Ordinal))
+            {
+                int ipv6End = candidate.IndexOf(']');
+                if (ipv6End > 1)
+                    candidate = candidate[1..ipv6End];
+            }
+            else
+            {
+                int portStart = candidate.LastIndexOf(':');
+                if (portStart > 0)
+                    candidate = candidate[..portStart];
+            }
+
+            host = candidate;
+            return host.Length > 0;
         }
 
         public void ShowNavigationError(CoreWebView2WebErrorStatus status, string homeUrl)

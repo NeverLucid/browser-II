@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -74,7 +75,10 @@ namespace Elastica
 
                 var psi = new ProcessStartInfo(component.TorExePath)
                 {
-                    Arguments = $"--SocksPort 127.0.0.1:{socksPort} --DataDirectory \"{torDataDir}\"",
+                    Arguments =
+                        $"--SocksPort 127.0.0.1:{socksPort} " +
+                        $"--DataDirectory \"{torDataDir}\" " +
+                        "--Log \"notice stdout\"",
                     CreateNoWindow = true,
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
@@ -89,20 +93,65 @@ namespace Elastica
                     return TorProxyResult.Failure(message);
                 }
 
-                // Wait up to 45 seconds for the SOCKS5 port to become available.
-                var deadline = DateTime.UtcNow.AddSeconds(90); // first bootstrap can take 60-90 s
+                int bootstrapPercent = 0;
+                var recentOutput = new StringBuilder(capacity: 4096);
+                var outputLock = new object();
+                void ObserveTorOutput(string? line)
+                {
+                    if (string.IsNullOrWhiteSpace(line))
+                        return;
+
+                    TorBootstrapProgress? nextProgress = null;
+                    lock (outputLock)
+                    {
+                        if (recentOutput.Length > 3500)
+                            recentOutput.Remove(0, recentOutput.Length - 2500);
+                        recentOutput.AppendLine(line);
+
+                        int percent = TryReadBootstrapPercent(line);
+                        if (percent > bootstrapPercent)
+                        {
+                            Volatile.Write(ref bootstrapPercent, percent);
+                            nextProgress = new TorBootstrapProgress(
+                                "Connecting to Tor",
+                                percent >= 100
+                                    ? "Tor network is ready."
+                                    : $"Bootstrapping Tor circuit ({percent}%)...");
+                        }
+                    }
+
+                    if (nextProgress != null)
+                        progress?.Invoke(nextProgress);
+                }
+
+                _torProcess.OutputDataReceived += (_, e) => ObserveTorOutput(e.Data);
+                _torProcess.ErrorDataReceived += (_, e) => ObserveTorOutput(e.Data);
+                _torProcess.BeginOutputReadLine();
+                _torProcess.BeginErrorReadLine();
+
+                // The SOCKS port can accept connections before circuits are usable. Waiting
+                // for full bootstrap keeps the first WebView navigation from burning through
+                // Chromium's timeout while Tor is still connecting.
+                var deadline = DateTime.UtcNow.AddSeconds(180);
                 while (DateTime.UtcNow < deadline)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
                     if (_torProcess.HasExited)
                     {
-                        const string message = "Tor exited before the SOCKS5 proxy became available.";
+                        string detail;
+                        lock (outputLock)
+                        {
+                            detail = recentOutput.Length > 0
+                                ? "\n\nRecent Tor output:\n" + recentOutput
+                                : "";
+                        }
+                        string message = "Tor exited before the network became available." + detail;
                         ShowTorErrorDialog(message);
                         return TorProxyResult.Failure(message);
                     }
 
-                    if (IsPortOpen(socksPort))
+                    if (Volatile.Read(ref bootstrapPercent) >= 100 && IsPortOpen(socksPort))
                     {
                         _started = true;
                         _socksPort = socksPort;
@@ -116,13 +165,14 @@ namespace Elastica
                 Shutdown();
 
                 const string timeoutMessage =
-                    "Tor started but the SOCKS5 port did not become available within 90 seconds.\n" +
+                    "Tor started but the network did not become ready within 180 seconds.\n" +
                     "Check that Tor is not blocked by your firewall, and that your internet connection is active.";
                 ShowTorErrorDialog(timeoutMessage);
                 return TorProxyResult.Failure(timeoutMessage);
             }
             catch (OperationCanceledException)
             {
+                Shutdown();
                 return TorProxyResult.Failure("Tor startup was cancelled.");
             }
             finally
@@ -181,6 +231,23 @@ namespace Elastica
             {
                 return false;
             }
+        }
+
+        private static int TryReadBootstrapPercent(string line)
+        {
+            const string marker = "Bootstrapped ";
+            int start = line.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (start < 0)
+                return 0;
+
+            start += marker.Length;
+            int end = line.IndexOf('%', start);
+            if (end <= start)
+                return 0;
+
+            return int.TryParse(line[start..end], out int percent)
+                ? Math.Clamp(percent, 0, 100)
+                : 0;
         }
 
         private static void ShowTorErrorDialog(string message)

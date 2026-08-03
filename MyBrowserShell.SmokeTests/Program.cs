@@ -10,6 +10,7 @@ var tests = new (string Name, Action Run)[]
     ("Tor port selection", TorPortSelection),
     ("Shield third-party path tokens", ShieldPathTokenBlocking),
     ("Shield allows first-party", ShieldAllowsFirstParty),
+    ("Shield redirect threshold", ShieldRedirectThreshold),
 };
 
 foreach (var (name, run) in tests)
@@ -25,6 +26,12 @@ static void UrlNormalization()
     Equal("https://example.com/path", Tab.NormalizeNavigationUrlForTests("http://example.com/path"));
     Equal("https://example.com/path", Tab.NormalizeNavigationUrlForTests("https://example.com/path"));
     Equal("file:///C:/Temp/NewTab.html", Tab.NormalizeNavigationUrlForTests("file:///C:/Temp/NewTab.html"));
+    Equal("http://localhost:5000", Tab.NormalizeNavigationUrlForTests("localhost:5000"));
+    Equal("http://localhost:5000/path", Tab.NormalizeNavigationUrlForTests("http://localhost:5000/path"));
+    Equal("https://localhost:5000/path", Tab.NormalizeNavigationUrlForTests("https://localhost:5000/path"));
+    Equal("http://127.0.0.1:8080/status", Tab.NormalizeNavigationUrlForTests("127.0.0.1:8080/status"));
+    Equal("http://exampleabcdefghijklmnop.onion", Tab.NormalizeNavigationUrlForTests("exampleabcdefghijklmnop.onion"));
+    Equal("http://exampleabcdefghijklmnop.onion/path", Tab.NormalizeNavigationUrlForTests("https://exampleabcdefghijklmnop.onion/path"));
 }
 
 static void ShieldBlockingDecisions()
@@ -100,6 +107,14 @@ static void ShieldAllowsFirstParty()
         CoreWebView2WebResourceContext.Image,
         shieldsEnabled: true,
         sourceUri: "https://example.com/"));
+}
+
+static void ShieldRedirectThreshold()
+{
+    False(PrivacyPolicy.ShouldBlockRedirect(3, shieldsEnabled: true));
+    False(PrivacyPolicy.ShouldBlockRedirect(20, shieldsEnabled: true));
+    True(PrivacyPolicy.ShouldBlockRedirect(21, shieldsEnabled: true));
+    False(PrivacyPolicy.ShouldBlockRedirect(100, shieldsEnabled: false));
 }
 
 static void SiteShieldExceptions()

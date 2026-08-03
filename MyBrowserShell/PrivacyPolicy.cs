@@ -298,34 +298,30 @@ namespace Elastica
             if (MatchesHost(host, ShieldBlockedHosts))
                 return true;
 
-            bool thirdParty = IsLikelyThirdParty(uri, sourceUri);
-            if (context is BrowserResourceKind.Image
-                or BrowserResourceKind.Media
-                or BrowserResourceKind.Script
-                or BrowserResourceKind.XmlHttpRequest
-                or BrowserResourceKind.Fetch
-                or BrowserResourceKind.EventSource
-                or BrowserResourceKind.WebSocket
-                or BrowserResourceKind.Ping
-                or BrowserResourceKind.Other)
+            if (IsBlockableRequestContext(context))
             {
-                foreach (var token in ShieldBlockedHostTokens)
-                {
-                    if (thirdParty && host.Contains(token, StringComparison.OrdinalIgnoreCase))
-                        return true;
-                }
+                bool thirdParty = IsLikelyThirdParty(uri, sourceUri);
 
-                foreach (var token in ShieldBlockedLeadingHostTokens)
+                if (thirdParty)
                 {
-                    if (thirdParty && host.StartsWith(token, StringComparison.OrdinalIgnoreCase))
-                        return true;
-                }
+                    foreach (var token in ShieldBlockedHostTokens)
+                    {
+                        if (host.Contains(token, StringComparison.OrdinalIgnoreCase))
+                            return true;
+                    }
 
-                string pathAndQuery = uri.PathAndQuery;
-                foreach (var token in ShieldBlockedPathTokens)
-                {
-                    if (thirdParty && pathAndQuery.Contains(token, StringComparison.OrdinalIgnoreCase))
-                        return true;
+                    foreach (var token in ShieldBlockedLeadingHostTokens)
+                    {
+                        if (host.StartsWith(token, StringComparison.OrdinalIgnoreCase))
+                            return true;
+                    }
+
+                    string pathAndQuery = uri.PathAndQuery;
+                    foreach (var token in ShieldBlockedPathTokens)
+                    {
+                        if (pathAndQuery.Contains(token, StringComparison.OrdinalIgnoreCase))
+                            return true;
+                    }
                 }
 
                 // Block common ad tracking parameters
@@ -341,6 +337,17 @@ namespace Elastica
             return false;
         }
 
+        private static bool IsBlockableRequestContext(BrowserResourceKind context) =>
+            context is BrowserResourceKind.Image
+                or BrowserResourceKind.Media
+                or BrowserResourceKind.Script
+                or BrowserResourceKind.XmlHttpRequest
+                or BrowserResourceKind.Fetch
+                or BrowserResourceKind.EventSource
+                or BrowserResourceKind.WebSocket
+                or BrowserResourceKind.Ping
+                or BrowserResourceKind.Other;
+
         public static bool ShouldBlockPopup() => ShouldBlockPopup(ShieldsEnabled);
         public static bool ShouldBlockPopup(bool shieldsEnabled) => shieldsEnabled;
 
@@ -348,7 +355,7 @@ namespace Elastica
             ShouldBlockRedirect(redirectCount, ShieldsEnabled);
 
         public static bool ShouldBlockRedirect(int redirectCount, bool shieldsEnabled) =>
-            shieldsEnabled && redirectCount > 2;
+            shieldsEnabled && redirectCount > 20;
 
         private static IReadOnlyList<string> BuildTrackerPatterns()
         {
@@ -383,10 +390,17 @@ namespace Elastica
             if (blockedHosts.Contains(host))
                 return true;
 
-            foreach (var blocked in blockedHosts)
+            int offset = 0;
+            while (offset < host.Length)
             {
-                if (host.EndsWith("." + blocked, StringComparison.OrdinalIgnoreCase))
+                int dot = host.IndexOf('.', offset);
+                if (dot < 0 || dot + 1 >= host.Length)
+                    break;
+
+                if (blockedHosts.Contains(host[(dot + 1)..]))
                     return true;
+
+                offset = dot + 1;
             }
 
             return false;
