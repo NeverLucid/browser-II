@@ -29,10 +29,11 @@ namespace Elastica
             "--enable-accelerated-2d-canvas " +
             "--ignore-gpu-blocklist " +
 
-            // Network performance
-            "--enable-quic " +                                  // HTTP/3 for modern sites
-            "--enable-tcp-fast-open " +                         // TCP Fast Open reduces RTT
-            "--dns-prefetch-disable=false " +                   // keep DNS prefetch ON
+            // Network privacy: avoid direct DNS/UDP speculation in any fallback profile.
+            "--disable-quic " +
+            "--disable-features=AsyncDns,msEdgeLinkedAccount,msWalletBuyNow,TranslateUI,HeavyAdIntervention,LowPriorityIframes " +
+            "--dns-prefetch-disable " +
+            "--force-webrtc-ip-handling-policy=disable_non_proxied_udp " +
             "--max-connections-per-proxy=16 " +                 // more parallel connections
             "--disk-cache-size=134217728 " +                    // 128 MB explicit disk cache
 
@@ -44,8 +45,7 @@ namespace Elastica
             "--process-per-site " +                             // fewer renderer processes
 
             // Feature flags
-            "--enable-features=BackForwardCache,NetworkServiceInProcess2,ThrottleDisplayNoneAndVisibilityHiddenCrossOriginIframes " +
-            "--disable-features=msEdgeLinkedAccount,msWalletBuyNow,TranslateUI,HeavyAdIntervention,LowPriorityIframes";
+            "--enable-features=BackForwardCache,NetworkServiceInProcess2,ThrottleDisplayNoneAndVisibilityHiddenCrossOriginIframes";
 
         /// <summary>
         /// Eagerly starts initialising the WebView2 environment in the background.
@@ -92,6 +92,8 @@ namespace Elastica
         // Tor window flags — same perf set as normal windows but without flags
         // that interfere with SOCKS keepalive (--disable-background-networking, --disable-sync).
         private static readonly string TorBaseBrowserArguments =
+            "--disable-background-networking " +
+            "--disable-sync " +
             "--disable-client-side-phishing-detection " +
             "--disable-default-apps " +
             "--no-first-run " +
@@ -102,14 +104,16 @@ namespace Elastica
             "--enable-accelerated-2d-canvas " +
             "--ignore-gpu-blocklist " +
             "--disable-quic " +
+            "--disable-features=AsyncDns,msEdgeLinkedAccount,msWalletBuyNow,TranslateUI,HeavyAdIntervention " +
+            "--dns-prefetch-disable " +
+            "--force-webrtc-ip-handling-policy=disable_non_proxied_udp " +
             "--max-connections-per-proxy=8 " +
             "--disk-cache-size=67108864 " +                     // 64 MB cache for Tor tabs
             "--disable-hang-monitor " +
             "--disable-ipc-flooding-protection " +
             "--disable-renderer-backgrounding " +
             "--disable-backgrounding-occluded-windows " +
-            "--enable-features=BackForwardCache,NetworkServiceInProcess2 " +
-            "--disable-features=msEdgeLinkedAccount,msWalletBuyNow,TranslateUI,HeavyAdIntervention";
+            "--enable-features=BackForwardCache,NetworkServiceInProcess2 ";
 
         private static CoreWebView2EnvironmentOptions CreateTorEnvironmentOptions(int socksPort)
         {
@@ -121,11 +125,7 @@ namespace Elastica
             //                         We EXCLUDE both "localhost" and "127.0.0.1" so that the
             //                         loopback address used to reach Tor itself still resolves.
             // --proxy-bypass-list   : empty string — nothing bypasses the proxy.
-            string torArgs =
-                TorBaseBrowserArguments +
-                $" --proxy-server=socks5://127.0.0.1:{socksPort}" +
-                " --host-resolver-rules=\"MAP * ~NOTFOUND , EXCLUDE localhost , EXCLUDE 127.0.0.1\"" +
-                " --proxy-bypass-list=\"<-loopback>\"";
+            string torArgs = CreateTorBrowserArgumentsForTests(socksPort);
 
             return new CoreWebView2EnvironmentOptions
             {
@@ -134,6 +134,15 @@ namespace Elastica
                 EnableTrackingPrevention = true,
                 AdditionalBrowserArguments = torArgs
             };
+        }
+
+        internal static string CreateTorBrowserArgumentsForTests(int socksPort)
+        {
+            return
+                TorBaseBrowserArguments +
+                $" --proxy-server=socks5://127.0.0.1:{socksPort}" +
+                " --host-resolver-rules=\"MAP * ~NOTFOUND , EXCLUDE localhost , EXCLUDE 127.0.0.1\"" +
+                " --proxy-bypass-list=\"<-loopback>\"";
         }
 
         private static CoreWebView2EnvironmentOptions CreateEnvironmentOptions()

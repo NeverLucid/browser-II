@@ -734,12 +734,20 @@ namespace Elastica
             ApplyTabFilter(selectPage: page);
 
             if (isTorWindow)
+            {
+                if (!await EnsureTorWithSplashAsync())
+                    return;
+
                 await tab.InitializeTorAsync(url);
+            }
             else
+            {
                 await tab.InitializeAsync(url, GetEffectiveShieldsForUrl(url));
+            }
             if (tabMetadata.TryGetValue(page, out var initial) && initial.IsMuted)
                 await tab.SetMutedAsync(true);
 
+            ulong latestNavigationId = 0;
             tab.WebView.CoreWebView2.NavigationStarting += (s, e) =>
             {
                 if (IsDisposed)
@@ -750,6 +758,8 @@ namespace Elastica
                     e.Cancel = true;
                     return;
                 }
+
+                latestNavigationId = e.NavigationId;
 
                 bool effectiveShields = GetEffectiveShieldsForUrl(e.Uri);
                 tab.SetShieldsForNavigation(effectiveShields);
@@ -770,15 +780,21 @@ namespace Elastica
                 if (IsDisposed)
                     return;
 
+                ulong completedNavigationId = e.NavigationId;
+                bool isSuccess = e.IsSuccess;
+                CoreWebView2WebErrorStatus webErrorStatus = e.WebErrorStatus;
                 BeginInvoke(new Action(async () =>
                 {
+                    if (latestNavigationId != 0 && completedNavigationId != latestNavigationId)
+                        return;
+
                     pageLoading = false;
-                    if (!e.IsSuccess && ShouldShowLocalError(e.WebErrorStatus))
+                    if (!isSuccess && ShouldShowLocalError(webErrorStatus))
                     {
                         page.Text = "Page not found";
                         // Guard: only show error page if CoreWebView2 is still alive
                         if (tab.WebView.CoreWebView2 != null && !tab.WebView.IsDisposed)
-                            tab.ShowNavigationError(e.WebErrorStatus, homeUrl);
+                            tab.ShowNavigationError(webErrorStatus, homeUrl);
                         // Single combined UI refresh on error path
                         UpdateAddressFromCurrentTab();
                         UpdateNavigationButtons();
@@ -841,13 +857,12 @@ namespace Elastica
             UpdateNavigationButtons();
         }
 
-        private static bool ShouldShowLocalError(CoreWebView2WebErrorStatus status)
+        internal static bool ShouldShowLocalError(CoreWebView2WebErrorStatus status)
         {
             return status is CoreWebView2WebErrorStatus.HostNameNotResolved
                 or CoreWebView2WebErrorStatus.CannotConnect
                 or CoreWebView2WebErrorStatus.ServerUnreachable
                 or CoreWebView2WebErrorStatus.Timeout
-                or CoreWebView2WebErrorStatus.ConnectionAborted
                 or CoreWebView2WebErrorStatus.ConnectionReset
                 or CoreWebView2WebErrorStatus.Disconnected;
         }
@@ -2485,13 +2500,11 @@ namespace Elastica
             menu.Show(settingsButton, new Point(0, settingsButton.Height));
         }
 
-        /// <summary>
-        /// Starts the Tor proxy (if not already running) then opens a new browser window
-        /// that routes all traffic through Tor. The new window is visually distinguished
-        /// by a purple chrome tint and a [Tor] title bar badge.
-        /// </summary>
-        private async Task OpenTorWindowAsync()
+        private async Task<bool> EnsureTorWithSplashAsync()
         {
+            if (TorProxy.IsReady)
+                return true;
+
             // Show a connecting hint while Tor bootstraps.
             var splash = new Form
             {
@@ -2528,7 +2541,17 @@ namespace Elastica
             });
             splash.Close();
 
-            if (!ok)
+            return ok;
+        }
+
+        /// <summary>
+        /// Starts the Tor proxy (if not already running) then opens a new browser window
+        /// that routes all traffic through Tor. The new window is visually distinguished
+        /// by a purple chrome tint and a [Tor] title bar badge.
+        /// </summary>
+        private async Task OpenTorWindowAsync()
+        {
+            if (!await EnsureTorWithSplashAsync())
                 return; // TorProxy already showed an error dialog
 
             var torForm = new Form1(torWindow: true);

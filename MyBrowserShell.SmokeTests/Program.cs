@@ -11,6 +11,8 @@ var tests = new (string Name, Action Run)[]
     ("Shield third-party path tokens", ShieldPathTokenBlocking),
     ("Shield allows first-party", ShieldAllowsFirstParty),
     ("Shield redirect threshold", ShieldRedirectThreshold),
+    ("Navigation error classification", NavigationErrorClassification),
+    ("Tor browser arguments prevent network leaks", TorBrowserArgumentsPreventNetworkLeaks),
 };
 
 foreach (var (name, run) in tests)
@@ -117,6 +119,13 @@ static void ShieldRedirectThreshold()
     False(PrivacyPolicy.ShouldBlockRedirect(100, shieldsEnabled: false));
 }
 
+static void NavigationErrorClassification()
+{
+    True(Form1.ShouldShowLocalError(CoreWebView2WebErrorStatus.HostNameNotResolved));
+    True(Form1.ShouldShowLocalError(CoreWebView2WebErrorStatus.Timeout));
+    False(Form1.ShouldShowLocalError(CoreWebView2WebErrorStatus.ConnectionAborted));
+}
+
 static void SiteShieldExceptions()
 {
     var disabled = new List<string>();
@@ -170,6 +179,28 @@ static void TorPortSelection()
     True(selected > 0);
 }
 
+static void TorBrowserArgumentsPreventNetworkLeaks()
+{
+    string torArgs = BrowserRuntime.CreateTorBrowserArgumentsForTests(19050);
+
+    Contains("--proxy-server=socks5://127.0.0.1:19050", torArgs);
+    Contains("--host-resolver-rules=\"MAP * ~NOTFOUND", torArgs);
+    Contains("--proxy-bypass-list=\"<-loopback>\"", torArgs);
+    Contains("--dns-prefetch-disable", torArgs);
+    Contains("--disable-quic", torArgs);
+    Contains("--force-webrtc-ip-handling-policy=disable_non_proxied_udp", torArgs);
+    DoesNotContain("--dns-prefetch-disable=false", torArgs);
+    DoesNotContain("--enable-quic", torArgs);
+
+    Contains("--dns-prefetch-disable", BrowserRuntime.AdditionalBrowserArguments);
+    Contains("--disable-quic", BrowserRuntime.AdditionalBrowserArguments);
+    Contains(
+        "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+        BrowserRuntime.AdditionalBrowserArguments);
+    DoesNotContain("--dns-prefetch-disable=false", BrowserRuntime.AdditionalBrowserArguments);
+    DoesNotContain("--enable-quic", BrowserRuntime.AdditionalBrowserArguments);
+}
+
 static void True(bool value)
 {
     if (!value)
@@ -186,6 +217,18 @@ static void Equal<T>(T expected, T actual)
 {
     if (!EqualityComparer<T>.Default.Equals(expected, actual))
         throw new InvalidOperationException($"Expected {expected}, got {actual}.");
+}
+
+static void Contains(string expectedSubstring, string actual)
+{
+    if (!actual.Contains(expectedSubstring, StringComparison.Ordinal))
+        throw new InvalidOperationException($"Expected to find {expectedSubstring}.");
+}
+
+static void DoesNotContain(string unexpectedSubstring, string actual)
+{
+    if (actual.Contains(unexpectedSubstring, StringComparison.Ordinal))
+        throw new InvalidOperationException($"Did not expect to find {unexpectedSubstring}.");
 }
 
 static void NotNull<T>(T value) where T : class

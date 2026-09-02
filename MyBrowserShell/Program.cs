@@ -10,7 +10,6 @@ namespace Elastica
         static void Main()
         {
             ApplicationConfiguration.Initialize();
-            _ = BrowserRuntime.GetEnvironmentAsync();
             Application.Run(new Form1());
         }
     }

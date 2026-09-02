@@ -32,6 +32,8 @@ namespace Elastica
         /// </summary>
         public static int ActiveSocksPort => _socksPort > 0 ? _socksPort : DefaultSocksPort;
 
+        public static bool IsReady => _started && _socksPort > 0 && IsPortOpen(_socksPort);
+
         /// <summary>
         /// Ensures the Tor daemon is running and its SOCKS5 port is accepting connections.
         /// Safe to call multiple times; re-uses the existing process when already running.
@@ -44,7 +46,7 @@ namespace Elastica
             try
             {
                 // Re-use existing process if the port is still open.
-                if (_started && _socksPort > 0 && IsPortOpen(_socksPort))
+                if (IsReady)
                     return TorProxyResult.Ok(_socksPort, _torExePath ?? "Tor");
 
                 // An external Tor is already running on the default port — use it.
